@@ -1,0 +1,1403 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+    <title>Бильярд: статистика, клубы и бронирование</title>
+    <!-- Supabase JS -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        /* Все стили из предыдущей версии (здесь они не сокращены, но для краткости оставлю основной блок) */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            font-family: 'Segoe UI', Roboto, system-ui, sans-serif;
+            background-color: #0a0f0a;
+            color: #e0f2e0;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 10px;
+        }
+        #app {
+            width: 100%;
+            max-width: 500px;
+            background-color: #111811;
+            border-radius: 24px;
+            padding: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.8), 0 0 0 1px #2a3a2a inset;
+        }
+        h1, h2, h3 {
+            font-weight: 400;
+            color: #b0f0b0;
+            margin-bottom: 15px;
+        }
+        button {
+            background-color: #1e2a1e;
+            border: none;
+            color: #d0f0d0;
+            padding: 12px 20px;
+            border-radius: 40px;
+            font-size: 16px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+            border: 1px solid #2f4f2f;
+        }
+        button:active { transform: scale(0.97); background-color: #2f4f2f; }
+        button.primary { background-color: #2e7d32; border-color: #1b5e20; color: white; }
+        button.secondary { background-color: #1e2a1e; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
+        input, textarea {
+            width: 100%;
+            padding: 12px 15px;
+            background-color: #1a261a;
+            border: 1px solid #2f4f2f;
+            border-radius: 40px;
+            color: #fff;
+            font-size: 16px;
+            margin-bottom: 10px;
+        }
+        input:focus, textarea:focus { outline: none; border-color: #4caf50; box-shadow: 0 0 0 2px #2e7d3250; }
+        .score-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+        .current-score { font-size: 28px; font-weight: 600; color: #b0f0b0; }
+        .match-score { font-size: 16px; color: #8bc34a; }
+        .categories { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin: 20px 0; }
+        .category-card { background-color: #1a261a; border-radius: 20px; padding: 15px; display: flex; flex-direction: column; align-items: center; border: 1px solid #2f4f2f; }
+        .category-name { font-size: 14px; color: #8bc34a; margin-bottom: 8px; }
+        .category-value { font-size: 32px; font-weight: 600; margin-bottom: 10px; color: #e0f2e0; }
+        .category-btn { width: 100%; padding: 10px; background-color: #2e7d32; border: none; border-radius: 40px; color: white; font-size: 20px; font-weight: bold; }
+        .action-buttons { display: flex; gap: 10px; margin-top: 20px; flex-wrap: wrap; }
+        .action-buttons button { flex: 1 1 auto; min-width: 120px; }
+        .small-action-buttons { display: flex; gap: 8px; justify-content: center; margin-top: 10px; }
+        .small-action-buttons button { min-width: 60px; padding: 8px 12px; font-size: 14px; background-color: #1a261a; border: 1px solid #2f4f2f; }
+        .small-action-buttons .undo-btn { background-color: #2c3e2c; font-size: 18px; padding: 8px 16px; border-radius: 30px; }
+        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0,20,0,0.8); display: flex; justify-content: center; align-items: center; z-index: 1000; backdrop-filter: blur(4px); }
+        .modal-content { background-color: #1a261a; border-radius: 24px; padding: 25px; width: 90%; max-width: 400px; text-align: center; border: 1px solid #2f4f2f; box-shadow: 0 20px 40px #000; }
+        .modal-content h3 { margin-bottom: 20px; color: #b0f0b0; }
+        .modal-buttons { display: flex; gap: 15px; justify-content: center; flex-wrap: wrap; }
+        .modal-buttons button { flex: 1; min-width: 100px; }
+        .stats-table { background-color: #1a261a; border-radius: 20px; padding: 15px; margin: 20px 0; border: 1px solid #2f4f2f; }
+        .stats-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #2f4f2f; }
+        .stats-row:last-child { border-bottom: none; }
+        .player-switch { display: flex; gap: 10px; margin-bottom: 20px; }
+        .player-switch button { flex: 1; background-color: #1e2a1e; border: 1px solid #2f4f2f; }
+        .player-switch button.active { background-color: #2e7d32; border-color: #1b5e20; color: white; }
+        .small-note { font-size: 14px; color: #8bc34a; margin-top: 5px; }
+        .link-box { background-color: #1a261a; padding: 10px; border-radius: 40px; display: flex; gap: 10px; align-items: center; margin: 15px 0; border: 1px solid #2f4f2f; }
+        .link-box input { flex: 1; background-color: #0a0f0a; border: none; padding: 8px 12px; }
+        .hidden { display: none !important; }
+        .role-selector { display: flex; gap: 15px; justify-content: center; margin: 25px 0; }
+        .auth-form { display: flex; flex-direction: column; gap: 15px; margin: 20px 0; }
+        .game-list-item { background-color: #1a261a; border: 1px solid #2f4f2f; border-radius: 20px; padding: 15px; margin-bottom: 10px; cursor: pointer; transition: background-color 0.2s; }
+        .game-list-item:hover { background-color: #1e2a1e; }
+        .game-list-item .date { color: #8bc34a; font-size: 12px; }
+        .game-list-item .players { font-size: 16px; font-weight: 500; }
+        .game-list-item .score { font-size: 18px; color: #b0f0b0; }
+        .chart-container { background-color: #1a261a; border-radius: 20px; padding: 15px; margin: 20px 0; border: 1px solid #2f4f2f; }
+        .back-btn { margin-bottom: 15px; background-color: transparent; border: 1px solid #2f4f2f; }
+        .party-item { background-color: #1a261a; border: 1px solid #2f4f2f; border-radius: 16px; padding: 12px; margin-bottom: 8px; cursor: pointer; }
+        #loading-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0,0,0,0.7); display: flex; justify-content: center; align-items: center; z-index: 3000; backdrop-filter: blur(3px); }
+        .spinner { width: 40px; height: 40px; border: 4px solid #2f4f2f; border-top: 4px solid #4caf50; border-radius: 50%; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .nav-tabs { display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 1px solid #2f4f2f; padding-bottom: 10px; }
+        .nav-tabs button { background: none; border: none; padding: 8px 16px; font-size: 16px; cursor: pointer; color: #8bc34a; }
+        .nav-tabs button.active { color: #b0f0b0; border-bottom: 2px solid #b0f0b0; }
+        .hero { background-size: cover; background-position: center; padding: 60px 20px; text-align: center; border-radius: 20px; margin-bottom: 30px; }
+        .hero h1 { font-size: 28px; margin-bottom: 20px; text-shadow: 2px 2px 4px rgba(0,0,0,0.5); }
+        .main-buttons { display: flex; flex-direction: column; gap: 15px; }
+        .main-buttons button { padding: 15px; font-size: 18px; }
+        .club-list { display: flex; flex-direction: column; gap: 12px; }
+        .club-card { background: #1a261a; border-radius: 16px; padding: 15px; cursor: pointer; border: 1px solid #2f4f2f; }
+        .club-card:hover { background: #1e2a1e; }
+        .club-card h3 { margin-bottom: 5px; }
+        .club-card p { color: #8bc34a; font-size: 14px; }
+        .city-selector { position: relative; margin-bottom: 20px; }
+        .city-input { width: 100%; padding: 12px; background: #1a261a; border: 1px solid #2f4f2f; border-radius: 40px; color: #fff; font-size: 16px; }
+        .city-suggestions { position: absolute; top: 100%; left: 0; right: 0; background: #1a261a; border: 1px solid #2f4f2f; border-radius: 16px; max-height: 200px; overflow-y: auto; z-index: 10; }
+        .city-suggestion { padding: 10px; cursor: pointer; border-bottom: 1px solid #2f4f2f; }
+        .city-suggestion:hover { background: #2f4f2f; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        .tabs { display: flex; gap: 10px; margin: 20px 0; }
+        .tab-btn { background: #1e2a1e; padding: 8px 16px; border-radius: 40px; cursor: pointer; }
+        .tab-btn.active { background: #2e7d32; }
+        .time-input { display: flex; gap: 10px; align-items: center; }
+        .time-input input { flex: 1; }
+        .time-input button { width: 50px; }
+        .error-message { color: #ff8a80; font-size: 14px; margin-top: 5px; }
+        .admin-form { display: flex; flex-direction: column; gap: 15px; margin-bottom: 20px; }
+        .club-photo { width: 100%; max-height: 200px; object-fit: cover; border-radius: 16px; margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <!-- Экран аутентификации -->
+        <div id="auth-screen">
+            <h2>Добро пожаловать</h2>
+            <div class="auth-form">
+                <input type="email" id="auth-email" placeholder="Email" value="test@test.com">
+                <input type="password" id="auth-password" placeholder="Пароль" value="123456">
+                <button id="auth-login-btn" class="primary">Войти</button>
+                <button id="auth-register-btn" class="secondary">Зарегистрироваться</button>
+            </div>
+            <div id="auth-message" style="color: #ff8a80; text-align: center;"></div>
+        </div>
+
+        <!-- Главный экран для обычных пользователей (с вкладками) -->
+        <div id="main-screen" class="hidden">
+            <div class="nav-tabs">
+                <button id="tab-home" class="active">Главная</button>
+                <button id="tab-profile">Личный кабинет</button>
+                <button id="tab-clubs">Бильярдные</button>
+                <button id="tab-tournaments">Турниры</button>
+            </div>
+            <div id="home-content">
+                <div class="hero" style="background-image: url('https://images.unsplash.com/photo-1516466723877-e4ec1d736c8a?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=80');">
+                    <h1>Добро пожаловать в мир русского бильярда!</h1>
+                </div>
+                <div class="main-buttons">
+                    <button id="home-to-profile" class="primary">Личный кабинет</button>
+                    <button id="home-to-clubs" class="secondary">Бильярдные в моём городе</button>
+                    <button id="home-to-tournaments" class="secondary">Турниры</button>
+                </div>
+            </div>
+            <div id="profile-content" class="hidden">
+                <div id="profile-container"></div>
+            </div>
+            <div id="clubs-content" class="hidden">
+                <div class="city-selector">
+                    <input type="text" id="city-input" class="city-input" placeholder="Выберите город" autocomplete="off">
+                    <div id="city-suggestions" class="city-suggestions hidden"></div>
+                </div>
+                <div id="clubs-list" class="club-list"></div>
+            </div>
+            <div id="tournaments-content" class="hidden">
+                <div id="tournaments-list"></div>
+            </div>
+        </div>
+
+        <!-- Экран для бильярдных клубов (управление) -->
+        <div id="club-dashboard" class="hidden">
+            <div class="nav-tabs">
+                <button id="club-tab-info" class="active">Информация</button>
+                <button id="club-tab-tables">Столы</button>
+                <button id="club-tab-tournaments">Турниры</button>
+            </div>
+            <div id="club-info" class="tab-content active">
+                <h2>Информация о клубе</h2>
+                <div id="club-detail"></div>
+                <button id="edit-club-btn" class="secondary">Редактировать</button>
+            </div>
+            <div id="club-tables" class="tab-content">
+                <h2>Управление столами</h2>
+                <div id="tables-list"></div>
+                <button id="add-table-btn" class="secondary" style="margin-top:10px;">+ Добавить стол</button>
+            </div>
+            <div id="club-tournaments" class="tab-content">
+                <h2>Турниры</h2>
+                <button id="create-tournament-btn" class="primary">Создать турнир</button>
+                <div id="club-tournaments-list"></div>
+            </div>
+        </div>
+
+        <!-- Экран админа -->
+        <div id="admin-dashboard" class="hidden">
+            <h2>Админ-панель</h2>
+            <div class="admin-stats">
+                <canvas id="admin-stats-chart" width="400" height="200"></canvas>
+            </div>
+            <h3>Создать новый клуб</h3>
+            <div class="admin-form">
+                <input type="text" id="new-club-name" placeholder="Название клуба">
+                <input type="text" id="new-club-address" placeholder="Адрес">
+                <input type="text" id="new-club-phone" placeholder="Телефон">
+                <input type="text" id="new-club-city" placeholder="Город">
+                <input type="number" id="new-club-tables" placeholder="Количество столов" value="1">
+                <button id="create-club-btn" class="primary">Создать клуб</button>
+            </div>
+            <h3>Список клубов</h3>
+            <div id="admin-clubs-list"></div>
+        </div>
+
+        <!-- Страница детального просмотра клуба (для обычных пользователей) -->
+        <div id="club-view" class="hidden">
+            <button id="back-to-clubs" class="back-btn">← Назад</button>
+            <div id="club-view-content"></div>
+            <div class="tabs">
+                <button class="tab-btn active" data-tab="club-info-view">Информация</button>
+                <button class="tab-btn" data-tab="club-tables-view">Столы и бронирование</button>
+                <button class="tab-btn" data-tab="club-tournaments-view">Турниры</button>
+            </div>
+            <div id="club-info-view" class="tab-content active"></div>
+            <div id="club-tables-view" class="tab-content"></div>
+            <div id="club-tournaments-view" class="tab-content"></div>
+        </div>
+
+        <!-- Модальное окно бронирования -->
+        <div id="booking-modal" class="modal-overlay hidden">
+            <div class="modal-content">
+                <h3>Бронирование стола</h3>
+                <div id="booking-info"></div>
+                <div class="time-input">
+                    <label>Начало:</label>
+                    <input type="datetime-local" id="booking-start">
+                    <button id="booking-start-plus">+1ч</button>
+                    <button id="booking-start-minus">-1ч</button>
+                </div>
+                <div class="time-input">
+                    <label>Окончание:</label>
+                    <input type="datetime-local" id="booking-end">
+                    <button id="booking-end-plus">+1ч</button>
+                    <button id="booking-end-minus">-1ч</button>
+                </div>
+                <div id="booking-error" class="error-message"></div>
+                <div class="modal-buttons">
+                    <button id="booking-confirm" class="primary">Забронировать</button>
+                    <button id="booking-cancel" class="secondary">Отмена</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Модальное окно создания турнира -->
+        <div id="tournament-modal" class="modal-overlay hidden">
+            <div class="modal-content">
+                <h3>Создание турнира</h3>
+                <input type="text" id="tournament-name" placeholder="Название">
+                <input type="text" id="tournament-game-type" placeholder="Тип игры (например, русский бильярд)">
+                <input type="number" id="tournament-max" placeholder="Максимум участников">
+                <input type="date" id="tournament-date">
+                <textarea id="tournament-desc" placeholder="Описание/правила"></textarea>
+                <input type="text" id="tournament-rules-url" placeholder="Ссылка на регламент (файл)">
+                <div class="modal-buttons">
+                    <button id="tournament-confirm" class="primary">Создать</button>
+                    <button id="tournament-cancel" class="secondary">Отмена</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Модальное окно редактирования клуба -->
+        <div id="edit-club-modal" class="modal-overlay hidden">
+            <div class="modal-content">
+                <h3>Редактирование клуба</h3>
+                <input type="text" id="edit-club-name" placeholder="Название">
+                <input type="text" id="edit-club-address" placeholder="Адрес">
+                <input type="text" id="edit-club-phone" placeholder="Телефон">
+                <input type="text" id="edit-club-city" placeholder="Город">
+                <input type="number" id="edit-club-tables" placeholder="Количество столов">
+                <input type="file" id="edit-club-photo" accept="image/*">
+                <div class="modal-buttons">
+                    <button id="edit-club-save" class="primary">Сохранить</button>
+                    <button id="edit-club-cancel" class="secondary">Отмена</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Старые экраны игрового процесса -->
+        <div id="game-detail-screen" class="hidden">
+            <button id="back-to-profile" class="back-btn">← Назад</button>
+            <h2 id="detail-game-title">Игра</h2>
+            <div id="detail-match-score" style="font-size:24px; margin:10px 0;"></div>
+            <div class="chart-container"><canvas id="party-efficiency-chart" width="400" height="200"></canvas></div>
+            <h3>Партии</h3>
+            <div id="parties-list"></div>
+        </div>
+        <div id="party-detail-screen" class="hidden">
+            <button id="back-to-game-detail" class="back-btn">← Назад</button>
+            <h2>Статистика партии</h2>
+            <div id="party-detail-info"></div>
+            <div class="player-switch" id="party-player-switch">
+                <button id="party-stats-player1-btn" class="active">Игрок 1</button>
+                <button id="party-stats-player2-btn">Игрок 2</button>
+            </div>
+            <div id="party-player1-stats" class="stats-table"></div>
+            <div id="party-player2-stats" class="stats-table hidden"></div>
+        </div>
+        <div id="create-game-screen" class="hidden">
+            <button id="back-from-create" class="back-btn">← Назад</button>
+            <h2>Новая игра</h2>
+            <div class="input-group"><label>Имя первого игрока (вы)</label><input type="text" id="player1-name" placeholder="Ваше имя"></div>
+            <div class="input-group"><label>Имя второго игрока</label><input type="text" id="player2-name" placeholder="Имя соперника" value="Соперник"></div>
+            <button id="create-game-btn" class="primary" style="width:100%;">Создать игру</button>
+            <div id="game-link-container" class="hidden">
+                <p>Ссылка для второго игрока:</p>
+                <div class="link-box"><input type="text" id="game-link" readonly><button id="copy-link-btn">Копировать</button></div>
+                <p class="small-note">После подключения второго игрока нажмите "Начать игру"</p>
+                <button id="start-game-btn" class="primary" style="width:100%;">Начать игру</button>
+            </div>
+        </div>
+        <div id="join-game-screen" class="hidden">
+            <h2>Подключение к игре</h2>
+            <p id="game-info">Загрузка...</p>
+            <div class="role-selector" id="role-selector"></div>
+            <button id="confirm-role-btn" class="primary" style="width:100%;" disabled>Подтвердить роль</button>
+        </div>
+        <div id="game-screen" class="hidden">
+            <div class="score-header"><span class="current-score" id="current-score">0:0</span><span class="match-score" id="match-score">Партии: 0:0</span></div>
+            <div id="current-player-indicator" style="text-align:center; margin-bottom:10px;">Ход: ...</div>
+            <div id="player-categories" class="categories"></div>
+            <div class="small-action-buttons"><button id="undo-btn" class="undo-btn">↩</button><button id="otygrysh-btn" class="secondary">Отыгрыш</button><button id="shtraf-btn" class="secondary">Штраф</button></div>
+            <div class="action-buttons"><button id="next-turn-btn" class="primary">Следующий ход</button><button id="end-match-btn" class="secondary">Завершить игру</button></div>
+        </div>
+        <div id="stats-screen" class="hidden">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 15px;"><button id="back-to-profile-from-stats" class="back-btn">← В профиль</button><div></div></div>
+            <h2>Статистика партии</h2>
+            <div id="match-score-stats" style="font-size:24px; text-align:center;">0:0</div>
+            <div class="player-switch" id="stats-player-switch"><button id="stats-player1-btn" class="active">Моя статистика</button><button id="stats-player2-btn">Статистика <span id="player2-name-stats"></span></button></div>
+            <div id="player1-stats" class="stats-table"></div><div id="player2-stats" class="stats-table hidden"></div>
+            <div class="action-buttons"><button id="next-party-btn" class="primary">Следующая партия</button><button id="end-game-from-stats-btn" class="secondary">Завершить игру</button></div>
+        </div>
+        <div id="final-stats-screen" class="hidden">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 15px;"><button id="back-to-profile-from-final" class="back-btn">← В профиль</button><div></div></div>
+            <h2>Итоговая статистика игры</h2>
+            <div id="final-match-score" style="font-size:24px; text-align:center;">0:0</div>
+            <div class="player-switch" id="final-player-switch"><button id="final-stats-player1-btn" class="active">Моя статистика</button><button id="final-stats-player2-btn">Статистика <span id="final-player2-name"></span></button></div>
+            <div id="final-player1-stats" class="stats-table"></div><div id="final-player2-stats" class="stats-table hidden"></div>
+            <div class="action-buttons"><button id="new-game-from-final" class="primary">Новая игра</button></div>
+        </div>
+        <div id="miss-modal" class="modal-overlay hidden"><div class="modal-content"><h3>На каком шаре промахнулись?</h3><div class="modal-buttons"><button id="miss-own">Свояк</button><button id="miss-opponent">Чужой</button></div></div></div>
+        <div id="otygrysh-modal" class="modal-overlay hidden"><div class="modal-content"><h3>Тип отыгрыша</h3><div class="modal-buttons"><button id="otygrysh-bez-shtrafa">Без штрафа</button><button id="otygrysh-so-shtrafom">Со штрафом</button></div></div></div>
+
+        <div id="loading-overlay" style="display: none;"><div class="spinner"></div></div>
+    </div>
+
+    <script>
+        // ========== НАСТРОЙКИ SUPABASE ==========
+        const SUPABASE_URL = 'https://yldxaouqbhxgcojydrmj.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlsZHhhb3VxYmh4Z2Nvanlkcm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2NTI0NTgsImV4cCI6MjA4OTIyODQ1OH0.RSlOz8y591wMbMH-V7swnXJBzku3CuUiSdkVrqrUCG4';
+        const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        const STORAGE_BUCKET = 'club-photos';
+
+        // ========== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ==========
+        let currentUser = null;
+        let currentRole = null;
+        let currentClub = null;
+        let citiesCache = [];
+        let currentClubView = null;
+        let currentGameId = null;
+        let currentPlayerRole = null;
+        let gameChannel = null;
+        let gameData = null;
+        let chartOverall = null;
+        let chartParty = null;
+        let currentGameDetail = null;
+        let currentParties = null;
+        let isGameActionInProgress = false;
+        let isAuthActionInProgress = false;
+        let lastGameState = null;
+        let needSilentRefresh = false;
+
+        // ========== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ==========
+        function showLoading() { document.getElementById('loading-overlay').style.display = 'flex'; }
+        function hideLoading() { document.getElementById('loading-overlay').style.display = 'none'; }
+
+        function showScreen(screenId) {
+            const screens = ['auth-screen', 'main-screen', 'club-dashboard', 'admin-dashboard', 'club-view', 
+                            'game-detail-screen', 'party-detail-screen', 'create-game-screen', 'join-game-screen', 
+                            'game-screen', 'stats-screen', 'final-stats-screen'];
+            screens.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.classList.add('hidden');
+            });
+            const target = document.getElementById(screenId);
+            if (target) target.classList.remove('hidden');
+        }
+
+        function getGameIdFromUrl() { return new URLSearchParams(window.location.search).get('game'); }
+        function updateUrlWithGameId(gameId) {
+            const url = new URL(window.location);
+            if (gameId) url.searchParams.set('game', gameId);
+            else url.searchParams.delete('game');
+            window.history.pushState({}, '', url);
+        }
+        function generateGameId() { return Math.random().toString(36).substring(2, 10); }
+
+        // ========== СТАРАЯ ЧАСТЬ (СТАТИСТИКА ИГР) ==========
+        async function checkSessionOld() {
+            const { data: { session } } = await supabaseClient.auth.getSession();
+            if (session) {
+                currentUser = session.user;
+                const { data: profile, error } = await supabaseClient
+                    .from('profiles')
+                    .select('username, role')
+                    .eq('id', currentUser.id)
+                    .maybeSingle();
+                if (profile) {
+                    currentUser.username = profile.username;
+                    currentRole = profile.role || 'user';
+                    if (currentRole === 'club') {
+                        const { data: club } = await supabaseClient
+                            .from('clubs')
+                            .select('*')
+                            .eq('owner_id', currentUser.id)
+                            .maybeSingle();
+                        currentClub = club;
+                        if (currentClub) showClubDashboard();
+                        else { currentRole = 'user'; showMainScreen(); }
+                    } else if (currentRole === 'admin') {
+                        showAdminDashboard();
+                    } else {
+                        showMainScreen();
+                    }
+                } else {
+                    const username = currentUser.email.split('@')[0];
+                    await supabaseClient.from('profiles').insert({ id: currentUser.id, username, role: 'user' });
+                    currentRole = 'user';
+                    showMainScreen();
+                }
+                return true;
+            }
+            return false;
+        }
+
+        async function loadOldProfile() {
+            const container = document.getElementById('profile-container');
+            if (!container) return;
+            await loadOldGamesAndStats();
+        }
+
+        async function loadOldGamesAndStats() {
+            const container = document.getElementById('profile-container');
+            container.innerHTML = `
+                <div class="chart-container">
+                    <canvas id="overall-efficiency-chart" width="400" height="200"></canvas>
+                </div>
+                <h3>История игр</h3>
+                <div id="games-list"></div>
+                <button id="new-game-from-profile" class="primary" style="width:100%; margin-top:15px;">+ Новая игра</button>
+            `;
+            const { data: games, error } = await supabaseClient
+                .from('games')
+                .select('*')
+                .or(`data->>player1_id.eq.${currentUser.id},data->>player2_id.eq.${currentUser.id}`)
+                .order('created_at', { ascending: true });
+            if (error) console.error(error);
+            renderOldGamesList(games || []);
+            renderOldEfficiencyChart(games || []);
+            document.getElementById('new-game-from-profile').onclick = () => {
+                document.getElementById('player1-name').value = currentUser.username;
+                showScreen('create-game-screen');
+            };
+        }
+
+        function renderOldGamesList(games) {
+            const container = document.getElementById('games-list');
+            if (!games.length) { container.innerHTML = '<p style="color:#8bc34a;">У вас пока нет игр.</p>'; return; }
+            let html = '';
+            [...games].reverse().forEach(game => {
+                const data = game.data;
+                const date = new Date(game.created_at).toLocaleDateString();
+                const opponent = data.player1_id === currentUser.id ? data.player2_name : data.player1_name;
+                const myWins = data.player1_id === currentUser.id ? data.match_wins_p1 : data.match_wins_p2;
+                const oppWins = data.player1_id === currentUser.id ? data.match_wins_p2 : data.match_wins_p1;
+                const stats = data.player1_id === currentUser.id ? data.total_stats_p1 : data.total_stats_p2;
+                let efficiency = '0%';
+                if (stats) {
+                    const totalShots = (stats.break?.shots||0)+(stats.own?.shots||0)+(stats.opponent?.shots||0)+(stats.random?.shots||0)+(stats.otygrysh?.shots||0);
+                    const totalMade = (stats.break?.made||0)+(stats.own?.made||0)+(stats.opponent?.made||0)+(stats.random?.made||0);
+                    efficiency = totalShots ? ((totalMade/totalShots)*100).toFixed(1)+'%' : '0%';
+                }
+                html += `<div class="game-list-item" data-game-id="${game.id}"><div class="date">${date}</div><div class="players">соперник: ${opponent}</div><div class="score">${myWins}:${oppWins} (${efficiency})</div></div>`;
+            });
+            container.innerHTML = html;
+            document.querySelectorAll('.game-list-item').forEach(el => el.addEventListener('click', () => loadGameDetail(el.dataset.gameId)));
+        }
+
+        function renderOldEfficiencyChart(games) {
+            const ctx = document.getElementById('overall-efficiency-chart').getContext('2d');
+            if (chartOverall) chartOverall.destroy();
+            const labels = games.map((_,i)=>`Игра ${i+1}`);
+            const data = games.map(g=>{
+                const stats = g.data.player1_id===currentUser.id ? g.data.total_stats_p1 : g.data.total_stats_p2;
+                if(!stats) return 0;
+                const totalShots = (stats.break?.shots||0)+(stats.own?.shots||0)+(stats.opponent?.shots||0)+(stats.random?.shots||0)+(stats.otygrysh?.shots||0);
+                const totalMade = (stats.break?.made||0)+(stats.own?.made||0)+(stats.opponent?.made||0)+(stats.random?.made||0);
+                return totalShots ? (totalMade/totalShots*100).toFixed(1) : 0;
+            });
+            chartOverall = new Chart(ctx, { type:'line', data:{ labels, datasets:[{ label:'Общая результативность (%)', data, borderColor:'#4caf50', backgroundColor:'#2e7d3250', tension:0.3 }] }, options:{ responsive:true, maintainAspectRatio:false, scales:{ y:{ beginAtZero:true, max:100 } } } });
+        }
+
+        async function loadGameDetail(gameId) {
+            const { data: game, error: gameError } = await supabaseClient.from('games').select('*').eq('id', gameId).maybeSingle();
+            if (gameError || !game || !game.data) { alert('Игра не найдена'); loadOldGamesAndStats(); return; }
+            const dataObj = game.data;
+            currentGameDetail = dataObj; currentGameDetail.id = game.id;
+            const { data: parties, error: partiesError } = await supabaseClient.from('parties').select('*').eq('game_id', gameId).order('party_number', { ascending: true });
+            if (partiesError) console.error(partiesError);
+            currentParties = parties || [];
+            document.getElementById('detail-game-title').textContent = `Игра: ${dataObj.player1_name} vs ${dataObj.player2_name}`;
+            document.getElementById('detail-match-score').textContent = `${dataObj.match_wins_p1}:${dataObj.match_wins_p2}`;
+            renderPartyEfficiencyChart(parties || [], dataObj);
+            renderPartiesList(parties || []);
+            showScreen('game-detail-screen');
+        }
+
+        function renderPartyEfficiencyChart(parties, game) {
+            const ctx = document.getElementById('party-efficiency-chart').getContext('2d');
+            if (chartParty) chartParty.destroy();
+            const isMeP1 = game.player1_id === currentUser.id;
+            const labels = parties.map(p => `Партия ${p.party_number}`);
+            const data = parties.map(p => {
+                const stats = isMeP1 ? p.stats_p1 : p.stats_p2;
+                const totalShots = (stats.break?.shots||0)+(stats.own?.shots||0)+(stats.opponent?.shots||0)+(stats.random?.shots||0)+(stats.otygrysh?.shots||0);
+                const totalMade = (stats.break?.made||0)+(stats.own?.made||0)+(stats.opponent?.made||0)+(stats.random?.made||0);
+                return totalShots ? (totalMade/totalShots*100).toFixed(1) : 0;
+            });
+            chartParty = new Chart(ctx, { type:'line', data:{ labels, datasets:[{ label:'Результативность по партиям (%)', data, borderColor:'#4caf50', backgroundColor:'#2e7d3250', tension:0.3 }] }, options:{ responsive:true, maintainAspectRatio:false, scales:{ y:{ beginAtZero:true, max:100 } } } });
+        }
+
+        function renderPartiesList(parties) {
+            const container = document.getElementById('parties-list');
+            if (!parties.length) { container.innerHTML = '<p>Нет партий</p>'; return; }
+            let html = '';
+            parties.forEach(p => { html += `<div class="party-item" data-party-id="${p.id}"><div>Партия ${p.party_number} · Счёт ${p.score_p1}:${p.score_p2}</div></div>`; });
+            container.innerHTML = html;
+            document.querySelectorAll('.party-item').forEach(el => el.addEventListener('click', () => loadPartyDetail(el.dataset.partyId)));
+        }
+
+        async function loadPartyDetail(partyId) {
+            const { data: party, error } = await supabaseClient.from('parties').select('*').eq('id', partyId).maybeSingle();
+            if (error || !party) { alert('Партия не найдена'); return; }
+            document.getElementById('party-detail-info').innerHTML = `<div style="font-size:20px; margin-bottom:10px;">Партия ${party.party_number} · Счёт ${party.score_p1}:${party.score_p2}</div>`;
+            document.getElementById('party-stats-player1-btn').textContent = currentGameDetail.player1_name;
+            document.getElementById('party-stats-player2-btn').textContent = currentGameDetail.player2_name;
+            renderStatsTable('party-player1-stats', party.stats_p1, party.score_p1);
+            renderStatsTable('party-player2-stats', party.stats_p2, party.score_p2);
+            document.getElementById('party-player1-stats').classList.remove('hidden');
+            document.getElementById('party-player2-stats').classList.add('hidden');
+            document.getElementById('party-stats-player1-btn').classList.add('active');
+            document.getElementById('party-stats-player2-btn').classList.remove('active');
+            document.getElementById('party-stats-player1-btn').onclick = () => {
+                document.getElementById('party-player1-stats').classList.remove('hidden');
+                document.getElementById('party-player2-stats').classList.add('hidden');
+                document.getElementById('party-stats-player1-btn').classList.add('active');
+                document.getElementById('party-stats-player2-btn').classList.remove('active');
+            };
+            document.getElementById('party-stats-player2-btn').onclick = () => {
+                document.getElementById('party-player2-stats').classList.remove('hidden');
+                document.getElementById('party-player1-stats').classList.add('hidden');
+                document.getElementById('party-stats-player2-btn').classList.add('active');
+                document.getElementById('party-stats-player1-btn').classList.remove('active');
+            };
+            showScreen('party-detail-screen');
+        }
+
+        function renderStatsTable(containerId, stats, totalScore) {
+            const container = document.getElementById(containerId);
+            const categories = [
+                { key: 'break', name: 'Начальный удар' },
+                { key: 'own', name: 'Свояки' },
+                { key: 'opponent', name: 'Чужие' },
+                { key: 'random', name: 'Случайные' },
+                { key: 'otygrysh', name: 'Отыгрыши' },
+                { key: 'shtraf', name: 'Штрафы' }
+            ];
+            let html = `<div class="stats-row"><span>Всего забито:</span><span>${totalScore}</span></div>`;
+            for (let cat of categories) {
+                const stat = stats[cat.key] || { shots:0, made:0 };
+                let display = cat.key === 'otygrysh' ? `${stat.made}/${stat.shots}` : `${stat.made}/${stat.shots}`;
+                const efficiency = (cat.key === 'otygrysh' || cat.key === 'shtraf') ? '' : (stat.shots > 0 ? ` (${((stat.made / stat.shots) * 100).toFixed(1)}%)` : ' (0%)');
+                html += `<div class="stats-row"><span>${cat.name}:</span><span>${display}${efficiency}</span></div>`;
+            }
+            const totalShots = (stats.break?.shots||0)+(stats.own?.shots||0)+(stats.opponent?.shots||0)+(stats.random?.shots||0)+(stats.otygrysh?.shots||0);
+            const totalMade = (stats.break?.made||0)+(stats.own?.made||0)+(stats.opponent?.made||0)+(stats.random?.made||0);
+            const totalEfficiency = totalShots ? ((totalMade/totalShots)*100).toFixed(1) : '0.0';
+            html += `<div class="stats-row"><span>Общая результативность:</span><span>${totalMade}/${totalShots} (${totalEfficiency}%)</span></div>`;
+            container.innerHTML = html;
+        }
+
+        // Создание игры (старое)
+        document.getElementById('create-game-btn')?.addEventListener('click', async () => {
+            const p1Name = document.getElementById('player1-name').value.trim() || currentUser.username;
+            const p2Name = document.getElementById('player2-name').value.trim() || 'Соперник';
+            const gameId = generateGameId();
+            const newGameData = {
+                player1_id: currentUser.id, player2_id: null,
+                player1_name: p1Name, player2_name: p2Name,
+                match_wins_p1: 0, match_wins_p2: 0,
+                total_stats_p1: { break: {shots:0,made:0}, own:{shots:0,made:0}, opponent:{shots:0,made:0}, random:{shots:0,made:0}, otygrysh:{shots:0,made:0}, shtraf:{shots:0,made:0} },
+                total_stats_p2: { break:{shots:0,made:0}, own:{shots:0,made:0}, opponent:{shots:0,made:0}, random:{shots:0,made:0}, otygrysh:{shots:0,made:0}, shtraf:{shots:0,made:0} },
+                status: 'lobby', current_party: 1, breaker: 1
+            };
+            const { error } = await supabaseClient.from('games').insert({ id: gameId, data: newGameData, created_at: new Date() });
+            if (error) { alert('Ошибка создания игры: ' + error.message); return; }
+            currentGameId = gameId; currentPlayerRole = 'p1'; gameData = newGameData;
+            updateUrlWithGameId(gameId);
+            document.getElementById('game-link').value = window.location.href;
+            document.getElementById('game-link-container').classList.remove('hidden');
+            setupRealtimeChannel(gameId);
+        });
+
+        async function joinGame(gameId) {
+            currentGameId = gameId;
+            updateUrlWithGameId(gameId);
+            const { data: game, error } = await supabaseClient.from('games').select('*').eq('id', gameId).maybeSingle();
+            if (error || !game || !game.data) { alert('Игра не найдена'); showMainScreen(); return; }
+            gameData = game.data;
+            document.getElementById('game-info').textContent = `Игра: ${gameData.player1_name} vs ${gameData.player2_name}`;
+            const roleSelector = document.getElementById('role-selector');
+            roleSelector.innerHTML = `<button id="choose-p1" class="secondary">Я - ${gameData.player1_name}</button><button id="choose-p2" class="secondary">Я - ${gameData.player2_name}</button>`;
+            document.getElementById('confirm-role-btn').disabled = true;
+            showScreen('join-game-screen');
+            document.getElementById('choose-p1').addEventListener('click', () => { currentPlayerRole = 'p1'; document.getElementById('choose-p1').classList.add('primary'); document.getElementById('choose-p2').classList.remove('primary'); document.getElementById('confirm-role-btn').disabled = false; });
+            document.getElementById('choose-p2').addEventListener('click', () => { currentPlayerRole = 'p2'; document.getElementById('choose-p2').classList.add('primary'); document.getElementById('choose-p1').classList.remove('primary'); document.getElementById('confirm-role-btn').disabled = false; });
+            document.getElementById('confirm-role-btn').onclick = async () => {
+                if (!currentPlayerRole) return;
+                if (currentPlayerRole === 'p2') {
+                    gameData.player2_id = currentUser.id;
+                    await supabaseClient.from('games').update({ data: gameData }).eq('id', gameId);
+                }
+                setupRealtimeChannel(gameId);
+                if (gameData.status === 'playing') renderGameScreenFromData(gameData);
+                else if (gameData.status === 'partyFinished') renderStatsScreenFromData(gameData);
+                else if (gameData.status === 'finished') {
+                    renderFinalStatsFromData(gameData);
+                    setTimeout(() => { goToProfileWithRefresh(); }, 2000);
+                } else {
+                    alert('Ожидание начала игры от первого игрока');
+                }
+            };
+        }
+
+        function setupRealtimeChannel(gameId) {
+            if (gameChannel) supabaseClient.removeChannel(gameChannel);
+            gameChannel = supabaseClient.channel(`game:${gameId}`, { config: { broadcast: { self: true } } });
+            gameChannel.on('broadcast', { event: 'game_update' }, (payload) => {
+                gameData = payload.payload;
+                if (gameData.status === 'playing') renderGameScreenFromData(gameData);
+                else if (gameData.status === 'partyFinished') renderStatsScreenFromData(gameData);
+                else if (gameData.status === 'finished') renderFinalStatsFromData(gameData);
+            }).subscribe();
+        }
+
+        async function broadcastUpdate(updatedData) {
+            if (!gameChannel) return;
+            gameData = updatedData;
+            await gameChannel.send({ type: 'broadcast', event: 'game_update', payload: updatedData });
+            await supabaseClient.from('games').update({ data: updatedData }).eq('id', currentGameId);
+        }
+
+        function renderGameScreenFromData(data) {
+            showScreen('game-screen');
+            document.getElementById('current-score').textContent = `${data.party.score.p1}:${data.party.score.p2}`;
+            document.getElementById('match-score').textContent = `Партии: ${data.match_wins_p1}:${data.match_wins_p2}`;
+            const currentPlayer = data.party.currentPlayer;
+            const currentPlayerName = currentPlayer === 1 ? data.player1_name : data.player2_name;
+            document.getElementById('current-player-indicator').textContent = `Ход: ${currentPlayerName}`;
+            const container = document.getElementById('player-categories');
+            const playerStat = data.party.stats[`p${currentPlayer}`];
+            const categories = [
+                { key: 'break', name: 'Начальный удар' },
+                { key: 'own', name: 'Свояки' },
+                { key: 'opponent', name: 'Чужие шары' },
+                { key: 'random', name: 'Случайные шары' }
+            ];
+            let html = '';
+            for (let cat of categories) {
+                const stat = playerStat[cat.key];
+                html += `<div class="category-card"><div class="category-name">${cat.name}</div><div class="category-value">${stat.made}</div><button class="category-btn" data-category="${cat.key}" ${currentPlayerRole !== `p${currentPlayer}` ? 'disabled' : ''}>+</button></div>`;
+            }
+            container.innerHTML = html;
+            if (currentPlayerRole === `p${currentPlayer}`) {
+                document.querySelectorAll('.category-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        if (isGameActionInProgress) return;
+                        lastGameState = JSON.parse(JSON.stringify(gameData));
+                        handleAddMade(e.target.dataset.category, data);
+                    });
+                });
+            }
+        }
+
+        async function handleAddMade(category, currentData) {
+            if (isGameActionInProgress) return;
+            isGameActionInProgress = true;
+            document.querySelectorAll('.category-btn').forEach(btn => btn.disabled = true);
+            try {
+                const player = `p${currentData.party.currentPlayer}`;
+                const updatedData = JSON.parse(JSON.stringify(currentData));
+                updatedData.party.stats[player][category].made += 1;
+                updatedData.party.stats[player][category].shots += 1;
+                updatedData.party.score[player] += 1;
+                if (updatedData.party.score[player] >= 8) await finishParty(updatedData);
+                else await broadcastUpdate(updatedData);
+            } catch (error) { console.error(error); alert('Ошибка'); }
+            finally { isGameActionInProgress = false; }
+        }
+
+        async function finishParty(updatedData) {
+            const winner = updatedData.party.score.p1 >= 8 ? 'p1' : 'p2';
+            if (winner === 'p1') updatedData.match_wins_p1 += 1;
+            else updatedData.match_wins_p2 += 1;
+            const partyNumber = updatedData.current_party || 1;
+            const { error: partyError } = await supabaseClient.from('parties').insert({
+                game_id: currentGameId, party_number: partyNumber, breaker: updatedData.breaker,
+                score_p1: updatedData.party.score.p1, score_p2: updatedData.party.score.p2,
+                stats_p1: updatedData.party.stats.p1, stats_p2: updatedData.party.stats.p2
+            });
+            if (partyError) { console.error(partyError); alert('Ошибка сохранения партии'); return; }
+            for (let p of ['p1', 'p2']) {
+                for (let cat of ['break','own','opponent','random','otygrysh','shtraf']) {
+                    updatedData[`total_stats_${p}`][cat].shots += updatedData.party.stats[p][cat].shots;
+                    updatedData[`total_stats_${p}`][cat].made += updatedData.party.stats[p][cat].made;
+                }
+            }
+            updatedData.status = 'partyFinished';
+            updatedData.party.partyFinished = true;
+            updatedData.current_party = (updatedData.current_party || 1) + 1;
+            await broadcastUpdate(updatedData);
+            renderStatsScreenFromData(updatedData);
+        }
+
+        function renderStatsScreenFromData(data) {
+            showScreen('stats-screen');
+            document.getElementById('match-score-stats').textContent = `${data.party.score.p1}:${data.party.score.p2}`;
+            document.getElementById('player2-name-stats').textContent = data.player2_name;
+            const defaultPlayer = currentPlayerRole === 'p1' ? 1 : 2;
+            showStatsPlayer(defaultPlayer, data);
+            document.getElementById('stats-player1-btn').onclick = () => showStatsPlayer(1, data);
+            document.getElementById('stats-player2-btn').onclick = () => showStatsPlayer(2, data);
+        }
+        function showStatsPlayer(playerNum, data) {
+            const statsDiv1 = document.getElementById('player1-stats');
+            const statsDiv2 = document.getElementById('player2-stats');
+            const btn1 = document.getElementById('stats-player1-btn');
+            const btn2 = document.getElementById('stats-player2-btn');
+            if (playerNum === 1) {
+                statsDiv1.classList.remove('hidden'); statsDiv2.classList.add('hidden');
+                btn1.classList.add('active'); btn2.classList.remove('active');
+                renderStatsTable('player1-stats', data.party.stats.p1, data.party.score.p1);
+            } else {
+                statsDiv2.classList.remove('hidden'); statsDiv1.classList.add('hidden');
+                btn2.classList.add('active'); btn1.classList.remove('active');
+                renderStatsTable('player2-stats', data.party.stats.p2, data.party.score.p2);
+            }
+        }
+
+        function renderFinalStatsFromData(data) {
+            showScreen('final-stats-screen');
+            document.getElementById('final-match-score').textContent = `${data.match_wins_p1}:${data.match_wins_p2}`;
+            document.getElementById('final-player2-name').textContent = data.player2_name;
+            const defaultPlayer = currentPlayerRole === 'p1' ? 1 : 2;
+            showFinalPlayerStats(defaultPlayer, data);
+            document.getElementById('final-stats-player1-btn').onclick = () => showFinalPlayerStats(1, data);
+            document.getElementById('final-stats-player2-btn').onclick = () => showFinalPlayerStats(2, data);
+            needSilentRefresh = true;
+        }
+        function showFinalPlayerStats(playerNum, data) {
+            const div1 = document.getElementById('final-player1-stats');
+            const div2 = document.getElementById('final-player2-stats');
+            const btn1 = document.getElementById('final-stats-player1-btn');
+            const btn2 = document.getElementById('final-stats-player2-btn');
+            if (playerNum === 1) {
+                div1.classList.remove('hidden'); div2.classList.add('hidden');
+                btn1.classList.add('active'); btn2.classList.remove('active');
+                renderStatsTable('final-player1-stats', data.total_stats_p1, data.match_wins_p1);
+            } else {
+                div2.classList.remove('hidden'); div1.classList.add('hidden');
+                btn2.classList.add('active'); btn1.classList.remove('active');
+                renderStatsTable('final-player2-stats', data.total_stats_p2, data.match_wins_p2);
+            }
+        }
+
+        async function goToProfileWithRefresh() {
+            if (needSilentRefresh) {
+                needSilentRefresh = false;
+                showLoading();
+                try {
+                    const { data: game, error } = await supabaseClient.from('games').select('*').eq('id', currentGameId).maybeSingle();
+                    if (!error && game && game.data && game.data.player2_id !== currentUser.id) {
+                        const updatedData = game.data;
+                        updatedData.player2_id = currentUser.id;
+                        await supabaseClient.from('games').update({ data: updatedData }).eq('id', currentGameId);
+                    }
+                    await loadOldGamesAndStats();
+                } catch (err) { console.error(err); }
+                finally { hideLoading(); }
+            }
+            showMainScreen();
+            document.getElementById('tab-profile').click();
+        }
+
+        // Обработчики для игровых кнопок
+        document.getElementById('otygrysh-btn')?.addEventListener('click', () => {
+            if (gameData && currentPlayerRole === `p${gameData.party.currentPlayer}` && !isGameActionInProgress) {
+                document.getElementById('otygrysh-modal').classList.remove('hidden');
+            } else alert('Сейчас не ваш ход');
+        });
+        document.getElementById('otygrysh-bez-shtrafa')?.addEventListener('click', () => handleOtygrysh(false));
+        document.getElementById('otygrysh-so-shtrafom')?.addEventListener('click', () => handleOtygrysh(true));
+        async function handleOtygrysh(soShtrafom) {
+            if (isGameActionInProgress) return;
+            isGameActionInProgress = true;
+            document.getElementById('otygrysh-modal').classList.add('hidden');
+            try {
+                if (!gameData) return;
+                lastGameState = JSON.parse(JSON.stringify(gameData));
+                const updatedData = JSON.parse(JSON.stringify(gameData));
+                const player = `p${updatedData.party.currentPlayer}`;
+                updatedData.party.stats[player].otygrysh.shots += 1;
+                if (!soShtrafom) updatedData.party.stats[player].otygrysh.made += 1;
+                else updatedData.party.score[player] -= 1;
+                updatedData.party.currentPlayer = updatedData.party.currentPlayer === 1 ? 2 : 1;
+                await broadcastUpdate(updatedData);
+            } catch (error) { console.error(error); alert('Ошибка'); }
+            finally { isGameActionInProgress = false; }
+        }
+        document.getElementById('shtraf-btn')?.addEventListener('click', async () => {
+            if (gameData && currentPlayerRole === `p${gameData.party.currentPlayer}` && !isGameActionInProgress) {
+                if (isGameActionInProgress) return;
+                isGameActionInProgress = true;
+                try {
+                    lastGameState = JSON.parse(JSON.stringify(gameData));
+                    const updatedData = JSON.parse(JSON.stringify(gameData));
+                    const player = `p${updatedData.party.currentPlayer}`;
+                    updatedData.party.stats[player].shtraf.shots += 1;
+                    updatedData.party.stats[player].shtraf.made += 1;
+                    updatedData.party.score[player] -= 1;
+                    await broadcastUpdate(updatedData);
+                } catch (error) { console.error(error); alert('Ошибка'); }
+                finally { isGameActionInProgress = false; }
+            } else alert('Сейчас не ваш ход');
+        });
+        document.getElementById('undo-btn')?.addEventListener('click', async () => {
+            if (!gameData || !lastGameState) { alert('Нет действия для отмены'); return; }
+            if (currentPlayerRole !== `p${gameData.party.currentPlayer}`) { alert('Отмена доступна только в свой ход'); return; }
+            if (isGameActionInProgress) return;
+            isGameActionInProgress = true;
+            try { await broadcastUpdate(lastGameState); lastGameState = null; }
+            catch (error) { console.error(error); alert('Ошибка'); }
+            finally { isGameActionInProgress = false; }
+        });
+        document.getElementById('next-turn-btn')?.addEventListener('click', () => {
+            if (gameData && currentPlayerRole === `p${gameData.party.currentPlayer}` && !isGameActionInProgress) {
+                lastGameState = JSON.parse(JSON.stringify(gameData));
+                document.getElementById('miss-modal').classList.remove('hidden');
+            } else alert('Сейчас не ваш ход');
+        });
+        document.getElementById('miss-own')?.addEventListener('click', () => handleMiss('own'));
+        document.getElementById('miss-opponent')?.addEventListener('click', () => handleMiss('opponent'));
+        async function handleMiss(shotType) {
+            if (isGameActionInProgress) return;
+            isGameActionInProgress = true;
+            document.getElementById('miss-modal').classList.add('hidden');
+            try {
+                if (!gameData) return;
+                lastGameState = JSON.parse(JSON.stringify(gameData));
+                const updatedData = JSON.parse(JSON.stringify(gameData));
+                const player = `p${updatedData.party.currentPlayer}`;
+                updatedData.party.stats[player][shotType].shots += 1;
+                updatedData.party.currentPlayer = updatedData.party.currentPlayer === 1 ? 2 : 1;
+                await broadcastUpdate(updatedData);
+            } catch (error) { console.error(error); alert('Ошибка'); }
+            finally { isGameActionInProgress = false; }
+        }
+        document.getElementById('end-match-btn')?.addEventListener('click', async () => {
+            if (!gameData) return;
+            if (confirm('Завершить игру?')) {
+                const updatedData = JSON.parse(JSON.stringify(gameData));
+                updatedData.status = 'finished';
+                await broadcastUpdate(updatedData);
+            }
+        });
+        document.getElementById('start-game-btn')?.addEventListener('click', async () => {
+            const updatedData = JSON.parse(JSON.stringify(gameData));
+            updatedData.status = 'playing';
+            updatedData.breaker = 1;
+            updatedData.current_party = 1;
+            updatedData.party = {
+                score: { p1: 0, p2: 0 },
+                stats: {
+                    p1: { break: { shots:0, made:0 }, own: { shots:0, made:0 }, opponent: { shots:0, made:0 }, random: { shots:0, made:0 }, otygrysh: { shots:0, made:0 }, shtraf: { shots:0, made:0 } },
+                    p2: { break: { shots:0, made:0 }, own: { shots:0, made:0 }, opponent: { shots:0, made:0 }, random: { shots:0, made:0 }, otygrysh: { shots:0, made:0 }, shtraf: { shots:0, made:0 } }
+                },
+                currentPlayer: 1,
+                partyFinished: false
+            };
+            await broadcastUpdate(updatedData);
+            renderGameScreenFromData(updatedData);
+        });
+        document.getElementById('next-party-btn')?.addEventListener('click', async () => {
+            if (!gameData) return;
+            const updatedData = JSON.parse(JSON.stringify(gameData));
+            const nextBreaker = updatedData.breaker === 1 ? 2 : 1;
+            updatedData.status = 'playing';
+            updatedData.breaker = nextBreaker;
+            updatedData.party = {
+                score: { p1: 0, p2: 0 },
+                stats: {
+                    p1: { break: { shots:0, made:0 }, own: { shots:0, made:0 }, opponent: { shots:0, made:0 }, random: { shots:0, made:0 }, otygrysh: { shots:0, made:0 }, shtraf: { shots:0, made:0 } },
+                    p2: { break: { shots:0, made:0 }, own: { shots:0, made:0 }, opponent: { shots:0, made:0 }, random: { shots:0, made:0 }, otygrysh: { shots:0, made:0 }, shtraf: { shots:0, made:0 } }
+                },
+                currentPlayer: nextBreaker,
+                partyFinished: false
+            };
+            await broadcastUpdate(updatedData);
+        });
+        document.getElementById('end-game-from-stats-btn')?.addEventListener('click', async () => {
+            if (!gameData) return;
+            if (confirm('Завершить игру?')) {
+                const updatedData = JSON.parse(JSON.stringify(gameData));
+                updatedData.status = 'finished';
+                await broadcastUpdate(updatedData);
+            }
+        });
+        document.getElementById('back-to-profile-from-stats')?.addEventListener('click', goToProfileWithRefresh);
+        document.getElementById('back-to-profile-from-final')?.addEventListener('click', goToProfileWithRefresh);
+        document.getElementById('back-to-profile')?.addEventListener('click', () => showMainScreen());
+        document.getElementById('back-to-game-detail')?.addEventListener('click', () => { if (currentGameDetail) loadGameDetail(currentGameDetail.id); else showMainScreen(); });
+        document.getElementById('back-from-create')?.addEventListener('click', () => showMainScreen());
+        document.getElementById('back-from-join')?.addEventListener('click', () => showMainScreen());
+        document.getElementById('refresh-games-btn')?.addEventListener('click', loadOldGamesAndStats);
+        document.getElementById('copy-link-btn')?.addEventListener('click', () => { const linkInput = document.getElementById('game-link'); linkInput.select(); document.execCommand('copy'); alert('Ссылка скопирована'); });
+        document.getElementById('new-game-from-final')?.addEventListener('click', () => showScreen('create-game-screen'));
+
+        // ========== НОВАЯ ЧАСТЬ (КЛУБЫ, АДМИНКА) ==========
+        async function loadCities() {
+            const { data, error } = await supabaseClient.from('cities').select('name').order('name');
+            if (!error && data) citiesCache = data.map(c => c.name);
+        }
+
+        function showMainScreen() {
+            showScreen('main-screen');
+            document.getElementById('home-content').classList.remove('hidden');
+            document.getElementById('profile-content').classList.add('hidden');
+            document.getElementById('clubs-content').classList.add('hidden');
+            document.getElementById('tournaments-content').classList.add('hidden');
+            document.getElementById('tab-home').classList.add('active');
+            document.getElementById('tab-profile').classList.remove('active');
+            document.getElementById('tab-clubs').classList.remove('active');
+            document.getElementById('tab-tournaments').classList.remove('active');
+            loadOldGamesAndStats();
+        }
+
+        function initCitySearch() {
+            const input = document.getElementById('city-input');
+            const suggestionsDiv = document.getElementById('city-suggestions');
+            input.addEventListener('input', () => {
+                const val = input.value.toLowerCase();
+                if (val.length < 1) { suggestionsDiv.classList.add('hidden'); return; }
+                const filtered = citiesCache.filter(c => c.toLowerCase().startsWith(val));
+                if (filtered.length) {
+                    suggestionsDiv.innerHTML = filtered.map(c => `<div class="city-suggestion">${c}</div>`).join('');
+                    suggestionsDiv.classList.remove('hidden');
+                    document.querySelectorAll('.city-suggestion').forEach(el => {
+                        el.addEventListener('click', () => {
+                            input.value = el.innerText;
+                            suggestionsDiv.classList.add('hidden');
+                            loadClubsByCity(input.value);
+                        });
+                    });
+                } else { suggestionsDiv.classList.add('hidden'); }
+            });
+            input.addEventListener('blur', () => setTimeout(() => suggestionsDiv.classList.add('hidden'), 200));
+        }
+
+        async function loadClubsByCity(cityName) {
+            const { data: city } = await supabaseClient.from('cities').select('id').eq('name', cityName).maybeSingle();
+            if (!city) { document.getElementById('clubs-list').innerHTML = '<p>Город не найден</p>'; return; }
+            const { data: clubs } = await supabaseClient.from('clubs').select('*').eq('city_id', city.id).order('name');
+            if (!clubs.length) { document.getElementById('clubs-list').innerHTML = '<p>В этом городе пока нет бильярдных</p>'; return; }
+            let html = '';
+            clubs.forEach(club => {
+                html += `<div class="club-card" data-club-id="${club.id}"><h3>${club.name}</h3><p>${club.address}</p><p>${club.phone || ''}</p></div>`;
+            });
+            document.getElementById('clubs-list').innerHTML = html;
+            document.querySelectorAll('.club-card').forEach(el => el.addEventListener('click', () => showClubView(el.dataset.clubId)));
+        }
+
+        async function showClubView(clubId) {
+            const { data: club } = await supabaseClient.from('clubs').select('*').eq('id', clubId).single();
+            if (!club) return;
+            currentClubView = club;
+            const photoHtml = club.photo_url ? `<img src="${club.photo_url}" class="club-photo">` : '';
+            document.getElementById('club-view-content').innerHTML = `${photoHtml}<h2>${club.name}</h2><p>Адрес: ${club.address}</p><p>Телефон: ${club.phone || 'не указан'}</p>`;
+            await loadClubTablesForView(clubId);
+            await loadClubTournamentsForView(clubId);
+            showScreen('club-view');
+            document.querySelectorAll('#club-view .tab-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const tab = btn.dataset.tab;
+                    document.querySelectorAll('#club-view .tab-content').forEach(tc => tc.classList.remove('active'));
+                    document.getElementById(tab).classList.add('active');
+                    document.querySelectorAll('#club-view .tab-btn').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                });
+            });
+        }
+
+        async function loadClubTablesForView(clubId) {
+            const { data: tables } = await supabaseClient.from('tables').select('*').eq('club_id', clubId).order('table_number');
+            let html = '<div class="club-list">';
+            for (let table of tables) {
+                const now = new Date();
+                const { data: bookings } = await supabaseClient.from('bookings').select('start_time, end_time').eq('table_id', table.id).eq('status', 'active').gt('end_time', now.toISOString());
+                let bookingInfo = 'свободен';
+                if (bookings.length) { const end = new Date(bookings[0].end_time); bookingInfo = `занят до ${end.toLocaleTimeString()}`; }
+                html += `<div class="club-card" data-table-id="${table.id}" data-table-num="${table.table_number}"><h3>Стол №${table.table_number}</h3><p>${bookingInfo}</p><button class="primary book-table-btn">Забронировать</button></div>`;
+            }
+            html += '</div>';
+            document.getElementById('club-tables-view').innerHTML = html;
+            document.querySelectorAll('.book-table-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const card = e.target.closest('.club-card');
+                    showBookingModal(card.dataset.tableId, card.dataset.tableNum);
+                });
+            });
+        }
+
+        async function loadClubTournamentsForView(clubId) {
+            const { data: tournaments } = await supabaseClient.from('tournaments').select('*').eq('club_id', clubId).order('date', { ascending: false });
+            let html = '<div class="club-list">';
+            tournaments.forEach(t => {
+                html += `<div class="club-card"><h3>${t.name}</h3><p>Дата: ${new Date(t.date).toLocaleDateString()}</p><p>Макс. участников: ${t.max_participants || 'не ограничено'}</p><p>${t.description || ''}</p></div>`;
+            });
+            html += '</div>';
+            document.getElementById('club-tournaments-view').innerHTML = html;
+        }
+
+        function showBookingModal(tableId, tableNum) {
+            const now = new Date();
+            const start = now.toISOString().slice(0,16);
+            const end = new Date(now.getTime() + 60*60*1000).toISOString().slice(0,16);
+            document.getElementById('booking-start').value = start;
+            document.getElementById('booking-end').value = end;
+            document.getElementById('booking-info').innerHTML = `<p>Стол №${tableNum}</p>`;
+            const modal = document.getElementById('booking-modal');
+            modal.classList.remove('hidden');
+            const confirm = document.getElementById('booking-confirm');
+            const cancel = document.getElementById('booking-cancel');
+            const handleConfirm = async () => {
+                const startTime = new Date(document.getElementById('booking-start').value);
+                const endTime = new Date(document.getElementById('booking-end').value);
+                if (startTime >= endTime) { document.getElementById('booking-error').innerText = 'Время окончания должно быть позже начала'; return; }
+                const { data: conflicts } = await supabaseClient.from('bookings').select('*').eq('table_id', tableId).eq('status', 'active').or(`and(start_time.lte.${endTime.toISOString()},end_time.gte.${startTime.toISOString()})`);
+                if (conflicts && conflicts.length) { document.getElementById('booking-error').innerText = 'Это время уже занято'; return; }
+                const { error } = await supabaseClient.from('bookings').insert({ table_id: tableId, user_id: currentUser.id, start_time: startTime.toISOString(), end_time: endTime.toISOString(), status: 'active' });
+                if (error) alert('Ошибка: ' + error.message);
+                else { alert('Бронирование успешно!'); modal.classList.add('hidden'); if (currentClubView) loadClubTablesForView(currentClubView.id); }
+            };
+            confirm.onclick = handleConfirm;
+            cancel.onclick = () => modal.classList.add('hidden');
+            document.getElementById('booking-start-plus').onclick = () => { let val = new Date(document.getElementById('booking-start').value); val.setHours(val.getHours() + 1); document.getElementById('booking-start').value = val.toISOString().slice(0,16); };
+            document.getElementById('booking-start-minus').onclick = () => { let val = new Date(document.getElementById('booking-start').value); val.setHours(val.getHours() - 1); document.getElementById('booking-start').value = val.toISOString().slice(0,16); };
+            document.getElementById('booking-end-plus').onclick = () => { let val = new Date(document.getElementById('booking-end').value); val.setHours(val.getHours() + 1); document.getElementById('booking-end').value = val.toISOString().slice(0,16); };
+            document.getElementById('booking-end-minus').onclick = () => { let val = new Date(document.getElementById('booking-end').value); val.setHours(val.getHours() - 1); document.getElementById('booking-end').value = val.toISOString().slice(0,16); };
+        }
+
+        async function loadTournamentsList() {
+            const { data: tournaments } = await supabaseClient.from('tournaments').select('*, clubs(name)').order('date', { ascending: false });
+            let html = '';
+            tournaments.forEach(t => {
+                html += `<div class="club-card"><h3>${t.name}</h3><p>Клуб: ${t.clubs?.name}</p><p>Дата: ${new Date(t.date).toLocaleDateString()}</p><p>Макс. участников: ${t.max_participants || 'не ограничено'}</p><p>${t.description || ''}</p></div>`;
+            });
+            document.getElementById('tournaments-list').innerHTML = html;
+        }
+
+        function showClubDashboard() {
+            showScreen('club-dashboard');
+            loadClubInfo();
+            loadClubTables();
+            loadClubTournaments();
+        }
+
+        async function loadClubInfo() {
+            const photoHtml = currentClub.photo_url ? `<img src="${currentClub.photo_url}" class="club-photo">` : '';
+            document.getElementById('club-detail').innerHTML = `${photoHtml}<p><strong>Название:</strong> ${currentClub.name}</p><p><strong>Адрес:</strong> ${currentClub.address}</p><p><strong>Телефон:</strong> ${currentClub.phone || 'не указан'}</p><p><strong>Город:</strong> ${currentClub.city_id}</p><p><strong>Столов:</strong> ${currentClub.tables_count}</p>`;
+        }
+
+        async function loadClubTables() {
+            const { data: tables } = await supabaseClient.from('tables').select('*').eq('club_id', currentClub.id).order('table_number');
+            let html = '';
+            for (let table of tables) {
+                const now = new Date();
+                const { data: bookings } = await supabaseClient.from('bookings').select('start_time, end_time').eq('table_id', table.id).eq('status', 'active').gt('end_time', now.toISOString());
+                let bookingInfo = bookings.length ? `занят до ${new Date(bookings[0].end_time).toLocaleTimeString()}` : 'свободен';
+                html += `<div class="club-card" style="margin-bottom:10px"><h3>Стол №${table.table_number}</h3><p>${bookingInfo}</p><button class="secondary" data-table-id="${table.id}" data-table-num="${table.table_number}">Занять/освободить</button></div>`;
+            }
+            document.getElementById('tables-list').innerHTML = html;
+            document.querySelectorAll('[data-table-id]').forEach(btn => btn.addEventListener('click', () => showClubBooking(btn.dataset.tableId, btn.dataset.tableNum)));
+        }
+
+        async function showClubBooking(tableId, tableNum) {
+            const now = new Date();
+            const start = now.toISOString().slice(0,16);
+            const end = new Date(now.getTime() + 60*60*1000).toISOString().slice(0,16);
+            document.getElementById('booking-start').value = start;
+            document.getElementById('booking-end').value = end;
+            document.getElementById('booking-info').innerHTML = `<p>Стол №${tableNum}</p>`;
+            const modal = document.getElementById('booking-modal');
+            modal.classList.remove('hidden');
+            const confirm = document.getElementById('booking-confirm');
+            const cancel = document.getElementById('booking-cancel');
+            const handleConfirm = async () => {
+                const startTime = new Date(document.getElementById('booking-start').value);
+                const endTime = new Date(document.getElementById('booking-end').value);
+                if (startTime >= endTime) { document.getElementById('booking-error').innerText = 'Время окончания должно быть позже начала'; return; }
+                const { data: conflicts } = await supabaseClient.from('bookings').select('*').eq('table_id', tableId).eq('status', 'active').or(`and(start_time.lte.${endTime.toISOString()},end_time.gte.${startTime.toISOString()})`);
+                if (conflicts && conflicts.length) { document.getElementById('booking-error').innerText = 'Это время уже занято'; return; }
+                const { error } = await supabaseClient.from('bookings').insert({ table_id: tableId, user_id: currentUser.id, start_time: startTime.toISOString(), end_time: endTime.toISOString(), status: 'active' });
+                if (error) alert('Ошибка: ' + error.message);
+                else { alert('Бронирование сохранено'); modal.classList.add('hidden'); loadClubTables(); }
+            };
+            confirm.onclick = handleConfirm;
+            cancel.onclick = () => modal.classList.add('hidden');
+            document.getElementById('booking-start-plus').onclick = () => { let val = new Date(document.getElementById('booking-start').value); val.setHours(val.getHours() + 1); document.getElementById('booking-start').value = val.toISOString().slice(0,16); };
+            document.getElementById('booking-start-minus').onclick = () => { let val = new Date(document.getElementById('booking-start').value); val.setHours(val.getHours() - 1); document.getElementById('booking-start').value = val.toISOString().slice(0,16); };
+            document.getElementById('booking-end-plus').onclick = () => { let val = new Date(document.getElementById('booking-end').value); val.setHours(val.getHours() + 1); document.getElementById('booking-end').value = val.toISOString().slice(0,16); };
+            document.getElementById('booking-end-minus').onclick = () => { let val = new Date(document.getElementById('booking-end').value); val.setHours(val.getHours() - 1); document.getElementById('booking-end').value = val.toISOString().slice(0,16); };
+        }
+
+        async function loadClubTournaments() {
+            const { data: tournaments } = await supabaseClient.from('tournaments').select('*').eq('club_id', currentClub.id).order('date', { ascending: false });
+            let html = '';
+            tournaments.forEach(t => {
+                html += `<div class="club-card"><h3>${t.name}</h3><p>Дата: ${new Date(t.date).toLocaleDateString()}</p><p>Макс. участников: ${t.max_participants || 'не ограничено'}</p><p>${t.description || ''}</p></div>`;
+            });
+            document.getElementById('club-tournaments-list').innerHTML = html;
+        }
+
+        function showAdminDashboard() {
+            showScreen('admin-dashboard');
+            loadAdminStats();
+            loadAdminClubs();
+        }
+
+        async function loadAdminStats() {
+            const { data: users } = await supabaseClient.from('profiles').select('role');
+            const roles = { user: 0, club: 0, admin: 0 };
+            users.forEach(u => roles[u.role]++);
+            const ctx = document.getElementById('admin-stats-chart').getContext('2d');
+            new Chart(ctx, { type: 'bar', data: { labels: ['Игроки', 'Клубы', 'Админы'], datasets: [{ label: 'Количество', data: [roles.user, roles.club, roles.admin], backgroundColor: ['#2e7d32', '#1e2a1e', '#4caf50'] }] } });
+        }
+
+        async function loadAdminClubs() {
+            const { data: clubs } = await supabaseClient.from('clubs').select('*, profiles(username)');
+            let html = '';
+            clubs.forEach(c => { html += `<div class="club-card">${c.name} (${c.profiles?.username})</div>`; });
+            document.getElementById('admin-clubs-list').innerHTML = html;
+        }
+
+        // Создание клуба с автоматическим созданием столов
+        document.getElementById('create-club-btn')?.addEventListener('click', async () => {
+            const name = document.getElementById('new-club-name').value;
+            const address = document.getElementById('new-club-address').value;
+            const phone = document.getElementById('new-club-phone').value;
+            const cityName = document.getElementById('new-club-city').value;
+            const tablesCount = parseInt(document.getElementById('new-club-tables').value) || 1;
+            let cityId;
+            const { data: existingCity } = await supabaseClient.from('cities').select('id').eq('name', cityName).maybeSingle();
+            if (existingCity) cityId = existingCity.id;
+            else {
+                const { data: newCity } = await supabaseClient.from('cities').insert({ name: cityName }).select().single();
+                cityId = newCity.id;
+            }
+            const password = Math.random().toString(36).slice(-8);
+            const email = `club_${Date.now()}@example.com`;
+            const { data: authUser, error: authError } = await supabaseClient.auth.signUp({ email, password });
+            if (authError) { alert('Ошибка создания аккаунта клуба: ' + authError.message); return; }
+            await supabaseClient.from('profiles').update({ role: 'club' }).eq('id', authUser.user.id);
+            const { data: newClub, error: clubError } = await supabaseClient
+                .from('clubs')
+                .insert({ owner_id: authUser.user.id, name, address, phone, city_id: cityId, tables_count: tablesCount })
+                .select()
+                .single();
+            if (clubError) { alert('Ошибка создания клуба: ' + clubError.message); return; }
+            // Создаём столы
+            const tables = [];
+            for (let i = 1; i <= tablesCount; i++) {
+                tables.push({ club_id: newClub.id, table_number: i });
+            }
+            await supabaseClient.from('tables').insert(tables);
+            alert(`Клуб создан! Email: ${email}, Пароль: ${password}`);
+            loadAdminClubs();
+        });
+
+        document.getElementById('add-table-btn')?.addEventListener('click', async () => {
+            const { data: tables } = await supabaseClient.from('tables').select('table_number').eq('club_id', currentClub.id).order('table_number', { ascending: false });
+            const maxNum = tables.length ? tables[0].table_number : 0;
+            const newNum = maxNum + 1;
+            const { error } = await supabaseClient.from('tables').insert({ club_id: currentClub.id, table_number: newNum });
+            if (error) alert('Ошибка добавления стола: ' + error.message);
+            else {
+                await supabaseClient.from('clubs').update({ tables_count: currentClub.tables_count + 1 }).eq('id', currentClub.id);
+                currentClub.tables_count++;
+                loadClubTables();
+            }
+        });
+
+        document.getElementById('create-tournament-btn')?.addEventListener('click', () => { document.getElementById('tournament-modal').classList.remove('hidden'); });
+        document.getElementById('tournament-cancel')?.addEventListener('click', () => { document.getElementById('tournament-modal').classList.add('hidden'); });
+        document.getElementById('tournament-confirm')?.addEventListener('click', async () => {
+            const name = document.getElementById('tournament-name').value;
+            const gameType = document.getElementById('tournament-game-type').value;
+            const max = parseInt(document.getElementById('tournament-max').value) || null;
+            const date = document.getElementById('tournament-date').value;
+            const desc = document.getElementById('tournament-desc').value;
+            const rulesUrl = document.getElementById('tournament-rules-url').value;
+            const { error } = await supabaseClient.from('tournaments').insert({ club_id: currentClub.id, name, game_type: gameType, max_participants: max, date, description: desc, rules_file_url: rulesUrl });
+            if (error) alert('Ошибка: ' + error.message);
+            else { alert('Турнир создан!'); document.getElementById('tournament-modal').classList.add('hidden'); loadClubTournaments(); }
+        });
+
+        // Редактирование клуба (с синхронизацией количества столов)
+        document.getElementById('edit-club-btn')?.addEventListener('click', () => {
+            document.getElementById('edit-club-name').value = currentClub.name;
+            document.getElementById('edit-club-address').value = currentClub.address;
+            document.getElementById('edit-club-phone').value = currentClub.phone || '';
+            (async () => {
+                const { data: city } = await supabaseClient.from('cities').select('name').eq('id', currentClub.city_id).single();
+                document.getElementById('edit-club-city').value = city?.name || '';
+            })();
+            document.getElementById('edit-club-tables').value = currentClub.tables_count;
+            document.getElementById('edit-club-photo').value = '';
+            document.getElementById('edit-club-modal').classList.remove('hidden');
+        });
+        document.getElementById('edit-club-cancel')?.addEventListener('click', () => {
+            document.getElementById('edit-club-modal').classList.add('hidden');
+        });
+        document.getElementById('edit-club-save')?.addEventListener('click', async () => {
+            const name = document.getElementById('edit-club-name').value;
+            const address = document.getElementById('edit-club-address').value;
+            const phone = document.getElementById('edit-club-phone').value;
+            const cityName = document.getElementById('edit-club-city').value;
+            const newTablesCount = parseInt(document.getElementById('edit-club-tables').value) || 1;
+            let cityId = currentClub.city_id;
+            if (cityName) {
+                const { data: existingCity } = await supabaseClient.from('cities').select('id').eq('name', cityName).maybeSingle();
+                if (existingCity) cityId = existingCity.id;
+                else {
+                    const { data: newCity } = await supabaseClient.from('cities').insert({ name: cityName }).select().single();
+                    cityId = newCity.id;
+                }
+            }
+            let photoUrl = currentClub.photo_url;
+            const fileInput = document.getElementById('edit-club-photo');
+            if (fileInput.files && fileInput.files[0]) {
+                const file = fileInput.files[0];
+                const fileName = `${currentClub.id}_${Date.now()}`;
+                const { data: uploadData, error: uploadError } = await supabaseClient.storage
+                    .from(STORAGE_BUCKET)
+                    .upload(fileName, file);
+                if (uploadError) {
+                    alert('Ошибка загрузки фото: ' + uploadError.message);
+                    return;
+                }
+                const { data: urlData } = supabaseClient.storage.from(STORAGE_BUCKET).getPublicUrl(fileName);
+                photoUrl = urlData.publicUrl;
+            }
+            const { error } = await supabaseClient
+                .from('clubs')
+                .update({ name, address, phone, city_id: cityId, tables_count: newTablesCount, photo_url: photoUrl })
+                .eq('id', currentClub.id);
+            if (error) { alert('Ошибка обновления: ' + error.message); return; }
+            // Синхронизация количества столов
+            const { data: existingTables } = await supabaseClient.from('tables').select('*').eq('club_id', currentClub.id).order('table_number');
+            const currentCount = existingTables.length;
+            if (newTablesCount > currentCount) {
+                for (let i = currentCount + 1; i <= newTablesCount; i++) {
+                    await supabaseClient.from('tables').insert({ club_id: currentClub.id, table_number: i });
+                }
+            } else if (newTablesCount < currentCount) {
+                const toDelete = existingTables.slice(newTablesCount);
+                for (let table of toDelete) {
+                    await supabaseClient.from('tables').delete().eq('id', table.id);
+                }
+            }
+            currentClub = { ...currentClub, name, address, phone, city_id: cityId, tables_count: newTablesCount, photo_url: photoUrl };
+            await loadClubInfo();
+            await loadClubTables();
+            document.getElementById('edit-club-modal').classList.add('hidden');
+        });
+
+        // Вкладки клубной панели
+        document.getElementById('club-tab-info')?.addEventListener('click', () => {
+            document.getElementById('club-info').classList.add('active');
+            document.getElementById('club-tables').classList.remove('active');
+            document.getElementById('club-tournaments').classList.remove('active');
+            document.getElementById('club-tab-info').classList.add('active');
+            document.getElementById('club-tab-tables').classList.remove('active');
+            document.getElementById('club-tab-tournaments').classList.remove('active');
+        });
+        document.getElementById('club-tab-tables')?.addEventListener('click', () => {
+            document.getElementById('club-info').classList.remove('active');
+            document.getElementById('club-tables').classList.add('active');
+            document.getElementById('club-tournaments').classList.remove('active');
+            document.getElementById('club-tab-info').classList.remove('active');
+            document.getElementById('club-tab-tables').classList.add('active');
+            document.getElementById('club-tab-tournaments').classList.remove('active');
+        });
+        document.getElementById('club-tab-tournaments')?.addEventListener('click', () => {
+            document.getElementById('club-info').classList.remove('active');
+            document.getElementById('club-tables').classList.remove('active');
+            document.getElementById('club-tournaments').classList.add('active');
+            document.getElementById('club-tab-info').classList.remove('active');
+            document.getElementById('club-tab-tables').classList.remove('active');
+            document.getElementById('club-tab-tournaments').classList.add('active');
+        });
+
+        // Навигация вкладок главного экрана
+        document.getElementById('tab-home')?.addEventListener('click', () => {
+            document.getElementById('home-content').classList.remove('hidden');
+            document.getElementById('profile-content').classList.add('hidden');
+            document.getElementById('clubs-content').classList.add('hidden');
+            document.getElementById('tournaments-content').classList.add('hidden');
+            document.getElementById('tab-home').classList.add('active');
+            document.getElementById('tab-profile').classList.remove('active');
+            document.getElementById('tab-clubs').classList.remove('active');
+            document.getElementById('tab-tournaments').classList.remove('active');
+        });
+        document.getElementById('tab-profile')?.addEventListener('click', () => {
+            document.getElementById('home-content').classList.add('hidden');
+            document.getElementById('profile-content').classList.remove('hidden');
+            document.getElementById('clubs-content').classList.add('hidden');
+            document.getElementById('tournaments-content').classList.add('hidden');
+            document.getElementById('tab-profile').classList.add('active');
+            document.getElementById('tab-home').classList.remove('active');
+            document.getElementById('tab-clubs').classList.remove('active');
+            document.getElementById('tab-tournaments').classList.remove('active');
+            loadOldGamesAndStats();
+        });
+        document.getElementById('tab-clubs')?.addEventListener('click', () => {
+            document.getElementById('home-content').classList.add('hidden');
+            document.getElementById('profile-content').classList.add('hidden');
+            document.getElementById('clubs-content').classList.remove('hidden');
+            document.getElementById('tournaments-content').classList.add('hidden');
+            document.getElementById('tab-clubs').classList.add('active');
+            document.getElementById('tab-home').classList.remove('active');
+            document.getElementById('tab-profile').classList.remove('active');
+            document.getElementById('tab-tournaments').classList.remove('active');
+            if (!document.getElementById('clubs-list').innerHTML) initCitySearch();
+        });
+        document.getElementById('tab-tournaments')?.addEventListener('click', () => {
+            document.getElementById('home-content').classList.add('hidden');
+            document.getElementById('profile-content').classList.add('hidden');
+            document.getElementById('clubs-content').classList.add('hidden');
+            document.getElementById('tournaments-content').classList.remove('hidden');
+            document.getElementById('tab-tournaments').classList.add('active');
+            document.getElementById('tab-home').classList.remove('active');
+            document.getElementById('tab-profile').classList.remove('active');
+            document.getElementById('tab-clubs').classList.remove('active');
+            loadTournamentsList();
+        });
+        document.getElementById('home-to-profile')?.addEventListener('click', () => document.getElementById('tab-profile').click());
+        document.getElementById('home-to-clubs')?.addEventListener('click', () => document.getElementById('tab-clubs').click());
+        document.getElementById('home-to-tournaments')?.addEventListener('click', () => document.getElementById('tab-tournaments').click());
+        document.getElementById('back-to-clubs')?.addEventListener('click', () => { showScreen('main-screen'); document.getElementById('tab-clubs').click(); });
+
+        // ========== ИНИЦИАЛИЗАЦИЯ ==========
+        (async function init() {
+            await loadCities();
+            const session = await checkSessionOld();
+            if (!session) showScreen('auth-screen');
+        })();
+    </script>
+</body>
+</html>
