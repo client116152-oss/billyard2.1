@@ -9,7 +9,6 @@
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <style>
-        /* Все стили без изменений (см. предыдущие версии) */
         * {
             box-sizing: border-box;
             margin: 0;
@@ -107,9 +106,27 @@
         #loading-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0,0,0,0.7); display: flex; justify-content: center; align-items: center; z-index: 3000; backdrop-filter: blur(3px); }
         .spinner { width: 40px; height: 40px; border: 4px solid #2f4f2f; border-top: 4px solid #4caf50; border-radius: 50%; animation: spin 1s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        .nav-tabs { display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 1px solid #2f4f2f; padding-bottom: 10px; }
-        .nav-tabs button { background: none; border: none; padding: 8px 16px; font-size: 16px; cursor: pointer; color: #8bc34a; }
-        .nav-tabs button.active { color: #b0f0b0; border-bottom: 2px solid #b0f0b0; }
+        .nav-tabs {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+            border-bottom: 1px solid #2f4f2f;
+            padding-bottom: 10px;
+        }
+        .nav-tabs button {
+            background: none;
+            border: none;
+            padding: 6px 12px;
+            font-size: 15px;
+            cursor: pointer;
+            color: #8bc34a;
+            white-space: nowrap;
+        }
+        .nav-tabs button.active {
+            color: #b0f0b0;
+            border-bottom: 2px solid #b0f0b0;
+        }
         .hero { background-size: cover; background-position: center; padding: 60px 20px; text-align: center; border-radius: 20px; margin-bottom: 30px; }
         .hero h1 { font-size: 28px; margin-bottom: 20px; text-shadow: 2px 2px 4px rgba(0,0,0,0.5); }
         .main-buttons { display: flex; flex-direction: column; gap: 15px; }
@@ -372,7 +389,6 @@
         // ========== НАСТРОЙКИ SUPABASE ==========
         const SUPABASE_URL = 'https://xfvapamibskyejddquco.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhmdmFwYW1pYnNreWVqZGRxdWNvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ5NTY2NjQsImV4cCI6MjA5MDUzMjY2NH0.mV-EGBnszrUyg91ZGVKVVOYLSpJau5Eli58kctyo2S4';
-        // Используем имя supabaseClient, чтобы не конфликтовать с глобальной переменной supabase
         const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
         const STORAGE_BUCKET = 'club-photos';
 
@@ -421,7 +437,7 @@
         }
         function generateGameId() { return Math.random().toString(36).substring(2, 10); }
 
-        // ========== АУТЕНТИФИКАЦИЯ (стабильная версия) ==========
+        // ========== АУТЕНТИФИКАЦИЯ ==========
         async function checkSession() {
             const { data: { session } } = await supabaseClient.auth.getSession();
             if (session) {
@@ -1498,7 +1514,18 @@
         (async function init() {
             await loadCities();
             const session = await checkSession();
-            if (!session) showScreen('auth-screen');
+            if (!session) {
+                showScreen('auth-screen');
+            } else {
+                // Обрабатываем игру из URL, если есть
+                const gameIdFromUrl = getGameIdFromUrl();
+                if (gameIdFromUrl) {
+                    await joinGame(gameIdFromUrl);
+                } else {
+                    // Иначе показываем профиль
+                    showMainScreen();
+                }
+            }
             setupRealtimeSubscriptions();
         })();
     </script>
