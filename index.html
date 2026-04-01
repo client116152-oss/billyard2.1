@@ -9,7 +9,7 @@
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <style>
-        /* Все стили из предыдущей версии (здесь они не сокращены, но для краткости оставлю основной блок) */
+        /* ========== ВСЕ СТИЛИ (без изменений) ========== */
         * {
             box-sizing: border-box;
             margin: 0;
@@ -369,15 +369,15 @@
     </div>
 
     <script>
-        // ========== НАСТРОЙКИ SUPABASE ==========
+        // ========== НАСТРОЙКИ SUPABASE (НОВЫЕ) ==========
         const SUPABASE_URL = 'https://xfvapamibskyejddquco.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhmdmFwYW1pYnNreWVqZGRxdWNvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ5NTY2NjQsImV4cCI6MjA5MDUzMjY2NH0.mV-EGBnszrUyg91ZGVKVVOYLSpJau5Eli58kctyo2S4';
-        const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
         const STORAGE_BUCKET = 'club-photos';
 
         // ========== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ==========
         let currentUser = null;
-        let currentRole = null;
+        let currentRole = null; // 'user', 'club', 'admin'
         let currentClub = null;
         let citiesCache = [];
         let currentClubView = null;
@@ -393,14 +393,15 @@
         let isAuthActionInProgress = false;
         let lastGameState = null;
         let needSilentRefresh = false;
+        let realtimeChannels = [];
 
         // ========== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ==========
         function showLoading() { document.getElementById('loading-overlay').style.display = 'flex'; }
         function hideLoading() { document.getElementById('loading-overlay').style.display = 'none'; }
 
         function showScreen(screenId) {
-            const screens = ['auth-screen', 'main-screen', 'club-dashboard', 'admin-dashboard', 'club-view', 
-                            'game-detail-screen', 'party-detail-screen', 'create-game-screen', 'join-game-screen', 
+            const screens = ['auth-screen', 'main-screen', 'club-dashboard', 'admin-dashboard', 'club-view',
+                            'game-detail-screen', 'party-detail-screen', 'create-game-screen', 'join-game-screen',
                             'game-screen', 'stats-screen', 'final-stats-screen'];
             screens.forEach(id => {
                 const el = document.getElementById(id);
@@ -419,37 +420,50 @@
         }
         function generateGameId() { return Math.random().toString(36).substring(2, 10); }
 
-        // ========== СТАРАЯ ЧАСТЬ (СТАТИСТИКА ИГР) ==========
-        async function checkSessionOld() {
-            const { data: { session } } = await supabaseClient.auth.getSession();
+        // ========== АУТЕНТИФИКАЦИЯ (стабильная версия) ==========
+        async function checkSession() {
+            const { data: { session } } = await supabase.auth.getSession();
             if (session) {
                 currentUser = session.user;
-                const { data: profile, error } = await supabaseClient
+                // Загружаем или создаём профиль
+                const { data: profile, error: profileError } = await supabase
                     .from('profiles')
                     .select('username, role')
                     .eq('id', currentUser.id)
                     .maybeSingle();
+
+                if (profileError && profileError.code !== 'PGRST116') {
+                    console.error('Ошибка загрузки профиля:', profileError);
+                }
+
                 if (profile) {
                     currentUser.username = profile.username;
                     currentRole = profile.role || 'user';
-                    if (currentRole === 'club') {
-                        const { data: club } = await supabaseClient
-                            .from('clubs')
-                            .select('*')
-                            .eq('owner_id', currentUser.id)
-                            .maybeSingle();
-                        currentClub = club;
-                        if (currentClub) showClubDashboard();
-                        else { currentRole = 'user'; showMainScreen(); }
-                    } else if (currentRole === 'admin') {
-                        showAdminDashboard();
-                    } else {
-                        showMainScreen();
-                    }
                 } else {
                     const username = currentUser.email.split('@')[0];
-                    await supabaseClient.from('profiles').insert({ id: currentUser.id, username, role: 'user' });
+                    const { error: insertError } = await supabase
+                        .from('profiles')
+                        .insert({ id: currentUser.id, username, role: 'user' });
+                    if (insertError) {
+                        console.error('Ошибка создания профиля:', insertError);
+                    }
+                    currentUser.username = username;
                     currentRole = 'user';
+                }
+
+                // Определяем роль и показываем нужный экран
+                if (currentRole === 'club') {
+                    const { data: club } = await supabase
+                        .from('clubs')
+                        .select('*')
+                        .eq('owner_id', currentUser.id)
+                        .maybeSingle();
+                    currentClub = club;
+                    if (currentClub) showClubDashboard();
+                    else { currentRole = 'user'; showMainScreen(); }
+                } else if (currentRole === 'admin') {
+                    showAdminDashboard();
+                } else {
                     showMainScreen();
                 }
                 return true;
@@ -457,6 +471,99 @@
             return false;
         }
 
+        document.getElementById('auth-login-btn').addEventListener('click', async () => {
+            if (isAuthActionInProgress) return;
+            isAuthActionInProgress = true;
+            document.getElementById('auth-login-btn').disabled = true;
+            document.getElementById('auth-register-btn').disabled = true;
+
+            const email = document.getElementById('auth-email').value;
+            const password = document.getElementById('auth-password').value;
+            const { error } = await supabase.auth.signInWithPassword({ email, password });
+
+            if (error) {
+                document.getElementById('auth-message').textContent = error.message;
+            } else {
+                await checkSession();
+            }
+
+            document.getElementById('auth-login-btn').disabled = false;
+            document.getElementById('auth-register-btn').disabled = false;
+            isAuthActionInProgress = false;
+        });
+
+        document.getElementById('auth-register-btn').addEventListener('click', async () => {
+            if (isAuthActionInProgress) return;
+            isAuthActionInProgress = true;
+            document.getElementById('auth-login-btn').disabled = true;
+            document.getElementById('auth-register-btn').disabled = true;
+
+            const email = document.getElementById('auth-email').value;
+            const password = document.getElementById('auth-password').value;
+            const { error } = await supabase.auth.signUp({ email, password });
+
+            if (error) {
+                document.getElementById('auth-message').textContent = error.message;
+            } else {
+                alert('Регистрация успешна! Теперь войдите.');
+            }
+
+            document.getElementById('auth-login-btn').disabled = false;
+            document.getElementById('auth-register-btn').disabled = false;
+            isAuthActionInProgress = false;
+        });
+
+        document.getElementById('logout-btn')?.addEventListener('click', async () => {
+            await supabase.auth.signOut();
+            currentUser = null;
+            showScreen('auth-screen');
+        });
+
+        // ========== REALTIME ПОДПИСКИ ==========
+        function setupRealtimeSubscriptions() {
+            realtimeChannels.forEach(ch => supabase.removeChannel(ch));
+            realtimeChannels = [];
+
+            const bookingsChannel = supabase.channel('bookings-updates')
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'bookings' }, () => {
+                    if (currentClubView) loadClubTablesForView(currentClubView.id);
+                    if (currentClub) loadClubTables();
+                })
+                .subscribe();
+            realtimeChannels.push(bookingsChannel);
+
+            const clubsChannel = supabase.channel('clubs-updates')
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'clubs' }, () => {
+                    if (!document.getElementById('admin-dashboard').classList.contains('hidden')) loadAdminClubs();
+                    if (!document.getElementById('main-screen').classList.contains('hidden') &&
+                        !document.getElementById('clubs-content').classList.contains('hidden')) {
+                        const city = document.getElementById('city-input').value;
+                        if (city) loadClubsByCity(city);
+                    }
+                })
+                .subscribe();
+            realtimeChannels.push(clubsChannel);
+
+            const tournamentsChannel = supabase.channel('tournaments-updates')
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'tournaments' }, () => {
+                    if (!document.getElementById('main-screen').classList.contains('hidden') &&
+                        !document.getElementById('tournaments-content').classList.contains('hidden')) loadTournamentsList();
+                    if (currentClub) loadClubTournaments();
+                    if (currentClubView) loadClubTournamentsForView(currentClubView.id);
+                })
+                .subscribe();
+            realtimeChannels.push(tournamentsChannel);
+
+            const tablesChannel = supabase.channel('tables-updates')
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'tables' }, () => {
+                    if (currentClub) loadClubTables();
+                    if (currentClubView) loadClubTablesForView(currentClubView.id);
+                })
+                .subscribe();
+            realtimeChannels.push(tablesChannel);
+        }
+
+        // ========== СТАРАЯ ЧАСТЬ (СТАТИСТИКА ИГР) ==========
         async function loadOldProfile() {
             const container = document.getElementById('profile-container');
             if (!container) return;
@@ -473,7 +580,7 @@
                 <div id="games-list"></div>
                 <button id="new-game-from-profile" class="primary" style="width:100%; margin-top:15px;">+ Новая игра</button>
             `;
-            const { data: games, error } = await supabaseClient
+            const { data: games, error } = await supabase
                 .from('games')
                 .select('*')
                 .or(`data->>player1_id.eq.${currentUser.id},data->>player2_id.eq.${currentUser.id}`)
@@ -525,11 +632,11 @@
         }
 
         async function loadGameDetail(gameId) {
-            const { data: game, error: gameError } = await supabaseClient.from('games').select('*').eq('id', gameId).maybeSingle();
+            const { data: game, error: gameError } = await supabase.from('games').select('*').eq('id', gameId).maybeSingle();
             if (gameError || !game || !game.data) { alert('Игра не найдена'); loadOldGamesAndStats(); return; }
             const dataObj = game.data;
             currentGameDetail = dataObj; currentGameDetail.id = game.id;
-            const { data: parties, error: partiesError } = await supabaseClient.from('parties').select('*').eq('game_id', gameId).order('party_number', { ascending: true });
+            const { data: parties, error: partiesError } = await supabase.from('parties').select('*').eq('game_id', gameId).order('party_number', { ascending: true });
             if (partiesError) console.error(partiesError);
             currentParties = parties || [];
             document.getElementById('detail-game-title').textContent = `Игра: ${dataObj.player1_name} vs ${dataObj.player2_name}`;
@@ -563,7 +670,7 @@
         }
 
         async function loadPartyDetail(partyId) {
-            const { data: party, error } = await supabaseClient.from('parties').select('*').eq('id', partyId).maybeSingle();
+            const { data: party, error } = await supabase.from('parties').select('*').eq('id', partyId).maybeSingle();
             if (error || !party) { alert('Партия не найдена'); return; }
             document.getElementById('party-detail-info').innerHTML = `<div style="font-size:20px; margin-bottom:10px;">Партия ${party.party_number} · Счёт ${party.score_p1}:${party.score_p2}</div>`;
             document.getElementById('party-stats-player1-btn').textContent = currentGameDetail.player1_name;
@@ -613,7 +720,7 @@
             container.innerHTML = html;
         }
 
-        // Создание игры (старое)
+        // ========== ИГРОВОЙ ПРОЦЕСС ==========
         document.getElementById('create-game-btn')?.addEventListener('click', async () => {
             const p1Name = document.getElementById('player1-name').value.trim() || currentUser.username;
             const p2Name = document.getElementById('player2-name').value.trim() || 'Соперник';
@@ -626,7 +733,7 @@
                 total_stats_p2: { break:{shots:0,made:0}, own:{shots:0,made:0}, opponent:{shots:0,made:0}, random:{shots:0,made:0}, otygrysh:{shots:0,made:0}, shtraf:{shots:0,made:0} },
                 status: 'lobby', current_party: 1, breaker: 1
             };
-            const { error } = await supabaseClient.from('games').insert({ id: gameId, data: newGameData, created_at: new Date() });
+            const { error } = await supabase.from('games').insert({ id: gameId, data: newGameData, created_at: new Date() });
             if (error) { alert('Ошибка создания игры: ' + error.message); return; }
             currentGameId = gameId; currentPlayerRole = 'p1'; gameData = newGameData;
             updateUrlWithGameId(gameId);
@@ -638,7 +745,7 @@
         async function joinGame(gameId) {
             currentGameId = gameId;
             updateUrlWithGameId(gameId);
-            const { data: game, error } = await supabaseClient.from('games').select('*').eq('id', gameId).maybeSingle();
+            const { data: game, error } = await supabase.from('games').select('*').eq('id', gameId).maybeSingle();
             if (error || !game || !game.data) { alert('Игра не найдена'); showMainScreen(); return; }
             gameData = game.data;
             document.getElementById('game-info').textContent = `Игра: ${gameData.player1_name} vs ${gameData.player2_name}`;
@@ -652,7 +759,7 @@
                 if (!currentPlayerRole) return;
                 if (currentPlayerRole === 'p2') {
                     gameData.player2_id = currentUser.id;
-                    await supabaseClient.from('games').update({ data: gameData }).eq('id', gameId);
+                    await supabase.from('games').update({ data: gameData }).eq('id', gameId);
                 }
                 setupRealtimeChannel(gameId);
                 if (gameData.status === 'playing') renderGameScreenFromData(gameData);
@@ -667,8 +774,8 @@
         }
 
         function setupRealtimeChannel(gameId) {
-            if (gameChannel) supabaseClient.removeChannel(gameChannel);
-            gameChannel = supabaseClient.channel(`game:${gameId}`, { config: { broadcast: { self: true } } });
+            if (gameChannel) supabase.removeChannel(gameChannel);
+            gameChannel = supabase.channel(`game:${gameId}`, { config: { broadcast: { self: true } } });
             gameChannel.on('broadcast', { event: 'game_update' }, (payload) => {
                 gameData = payload.payload;
                 if (gameData.status === 'playing') renderGameScreenFromData(gameData);
@@ -681,7 +788,7 @@
             if (!gameChannel) return;
             gameData = updatedData;
             await gameChannel.send({ type: 'broadcast', event: 'game_update', payload: updatedData });
-            await supabaseClient.from('games').update({ data: updatedData }).eq('id', currentGameId);
+            await supabase.from('games').update({ data: updatedData }).eq('id', currentGameId);
         }
 
         function renderGameScreenFromData(data) {
@@ -737,7 +844,7 @@
             if (winner === 'p1') updatedData.match_wins_p1 += 1;
             else updatedData.match_wins_p2 += 1;
             const partyNumber = updatedData.current_party || 1;
-            const { error: partyError } = await supabaseClient.from('parties').insert({
+            const { error: partyError } = await supabase.from('parties').insert({
                 game_id: currentGameId, party_number: partyNumber, breaker: updatedData.breaker,
                 score_p1: updatedData.party.score.p1, score_p2: updatedData.party.score.p2,
                 stats_p1: updatedData.party.stats.p1, stats_p2: updatedData.party.stats.p2
@@ -812,11 +919,11 @@
                 needSilentRefresh = false;
                 showLoading();
                 try {
-                    const { data: game, error } = await supabaseClient.from('games').select('*').eq('id', currentGameId).maybeSingle();
+                    const { data: game, error } = await supabase.from('games').select('*').eq('id', currentGameId).maybeSingle();
                     if (!error && game && game.data && game.data.player2_id !== currentUser.id) {
                         const updatedData = game.data;
                         updatedData.player2_id = currentUser.id;
-                        await supabaseClient.from('games').update({ data: updatedData }).eq('id', currentGameId);
+                        await supabase.from('games').update({ data: updatedData }).eq('id', currentGameId);
                     }
                     await loadOldGamesAndStats();
                 } catch (err) { console.error(err); }
@@ -826,7 +933,7 @@
             document.getElementById('tab-profile').click();
         }
 
-        // Обработчики для игровых кнопок
+        // Игровые кнопки
         document.getElementById('otygrysh-btn')?.addEventListener('click', () => {
             if (gameData && currentPlayerRole === `p${gameData.party.currentPlayer}` && !isGameActionInProgress) {
                 document.getElementById('otygrysh-modal').classList.remove('hidden');
@@ -959,9 +1066,9 @@
         document.getElementById('copy-link-btn')?.addEventListener('click', () => { const linkInput = document.getElementById('game-link'); linkInput.select(); document.execCommand('copy'); alert('Ссылка скопирована'); });
         document.getElementById('new-game-from-final')?.addEventListener('click', () => showScreen('create-game-screen'));
 
-        // ========== НОВАЯ ЧАСТЬ (КЛУБЫ, АДМИНКА) ==========
+        // ========== КЛУБЫ, АДМИНКА, БРОНИРОВАНИЯ ==========
         async function loadCities() {
-            const { data, error } = await supabaseClient.from('cities').select('name').order('name');
+            const { data, error } = await supabase.from('cities').select('name').order('name');
             if (!error && data) citiesCache = data.map(c => c.name);
         }
 
@@ -1001,9 +1108,9 @@
         }
 
         async function loadClubsByCity(cityName) {
-            const { data: city } = await supabaseClient.from('cities').select('id').eq('name', cityName).maybeSingle();
+            const { data: city } = await supabase.from('cities').select('id').eq('name', cityName).maybeSingle();
             if (!city) { document.getElementById('clubs-list').innerHTML = '<p>Город не найден</p>'; return; }
-            const { data: clubs } = await supabaseClient.from('clubs').select('*').eq('city_id', city.id).order('name');
+            const { data: clubs } = await supabase.from('clubs').select('*').eq('city_id', city.id).order('name');
             if (!clubs.length) { document.getElementById('clubs-list').innerHTML = '<p>В этом городе пока нет бильярдных</p>'; return; }
             let html = '';
             clubs.forEach(club => {
@@ -1014,7 +1121,7 @@
         }
 
         async function showClubView(clubId) {
-            const { data: club } = await supabaseClient.from('clubs').select('*').eq('id', clubId).single();
+            const { data: club } = await supabase.from('clubs').select('*').eq('id', clubId).single();
             if (!club) return;
             currentClubView = club;
             const photoHtml = club.photo_url ? `<img src="${club.photo_url}" class="club-photo">` : '';
@@ -1034,11 +1141,11 @@
         }
 
         async function loadClubTablesForView(clubId) {
-            const { data: tables } = await supabaseClient.from('tables').select('*').eq('club_id', clubId).order('table_number');
+            const { data: tables } = await supabase.from('tables').select('*').eq('club_id', clubId).order('table_number');
             let html = '<div class="club-list">';
             for (let table of tables) {
                 const now = new Date();
-                const { data: bookings } = await supabaseClient.from('bookings').select('start_time, end_time').eq('table_id', table.id).eq('status', 'active').gt('end_time', now.toISOString());
+                const { data: bookings } = await supabase.from('bookings').select('start_time, end_time').eq('table_id', table.id).eq('status', 'active').gt('end_time', now.toISOString());
                 let bookingInfo = 'свободен';
                 if (bookings.length) { const end = new Date(bookings[0].end_time); bookingInfo = `занят до ${end.toLocaleTimeString()}`; }
                 html += `<div class="club-card" data-table-id="${table.id}" data-table-num="${table.table_number}"><h3>Стол №${table.table_number}</h3><p>${bookingInfo}</p><button class="primary book-table-btn">Забронировать</button></div>`;
@@ -1054,7 +1161,7 @@
         }
 
         async function loadClubTournamentsForView(clubId) {
-            const { data: tournaments } = await supabaseClient.from('tournaments').select('*').eq('club_id', clubId).order('date', { ascending: false });
+            const { data: tournaments } = await supabase.from('tournaments').select('*').eq('club_id', clubId).order('date', { ascending: false });
             let html = '<div class="club-list">';
             tournaments.forEach(t => {
                 html += `<div class="club-card"><h3>${t.name}</h3><p>Дата: ${new Date(t.date).toLocaleDateString()}</p><p>Макс. участников: ${t.max_participants || 'не ограничено'}</p><p>${t.description || ''}</p></div>`;
@@ -1078,9 +1185,9 @@
                 const startTime = new Date(document.getElementById('booking-start').value);
                 const endTime = new Date(document.getElementById('booking-end').value);
                 if (startTime >= endTime) { document.getElementById('booking-error').innerText = 'Время окончания должно быть позже начала'; return; }
-                const { data: conflicts } = await supabaseClient.from('bookings').select('*').eq('table_id', tableId).eq('status', 'active').or(`and(start_time.lte.${endTime.toISOString()},end_time.gte.${startTime.toISOString()})`);
+                const { data: conflicts } = await supabase.from('bookings').select('*').eq('table_id', tableId).eq('status', 'active').or(`and(start_time.lte.${endTime.toISOString()},end_time.gte.${startTime.toISOString()})`);
                 if (conflicts && conflicts.length) { document.getElementById('booking-error').innerText = 'Это время уже занято'; return; }
-                const { error } = await supabaseClient.from('bookings').insert({ table_id: tableId, user_id: currentUser.id, start_time: startTime.toISOString(), end_time: endTime.toISOString(), status: 'active' });
+                const { error } = await supabase.from('bookings').insert({ table_id: tableId, user_id: currentUser.id, start_time: startTime.toISOString(), end_time: endTime.toISOString(), status: 'active' });
                 if (error) alert('Ошибка: ' + error.message);
                 else { alert('Бронирование успешно!'); modal.classList.add('hidden'); if (currentClubView) loadClubTablesForView(currentClubView.id); }
             };
@@ -1093,7 +1200,7 @@
         }
 
         async function loadTournamentsList() {
-            const { data: tournaments } = await supabaseClient.from('tournaments').select('*, clubs(name)').order('date', { ascending: false });
+            const { data: tournaments } = await supabase.from('tournaments').select('*, clubs(name)').order('date', { ascending: false });
             let html = '';
             tournaments.forEach(t => {
                 html += `<div class="club-card"><h3>${t.name}</h3><p>Клуб: ${t.clubs?.name}</p><p>Дата: ${new Date(t.date).toLocaleDateString()}</p><p>Макс. участников: ${t.max_participants || 'не ограничено'}</p><p>${t.description || ''}</p></div>`;
@@ -1114,11 +1221,11 @@
         }
 
         async function loadClubTables() {
-            const { data: tables } = await supabaseClient.from('tables').select('*').eq('club_id', currentClub.id).order('table_number');
+            const { data: tables } = await supabase.from('tables').select('*').eq('club_id', currentClub.id).order('table_number');
             let html = '';
             for (let table of tables) {
                 const now = new Date();
-                const { data: bookings } = await supabaseClient.from('bookings').select('start_time, end_time').eq('table_id', table.id).eq('status', 'active').gt('end_time', now.toISOString());
+                const { data: bookings } = await supabase.from('bookings').select('start_time, end_time').eq('table_id', table.id).eq('status', 'active').gt('end_time', now.toISOString());
                 let bookingInfo = bookings.length ? `занят до ${new Date(bookings[0].end_time).toLocaleTimeString()}` : 'свободен';
                 html += `<div class="club-card" style="margin-bottom:10px"><h3>Стол №${table.table_number}</h3><p>${bookingInfo}</p><button class="secondary" data-table-id="${table.id}" data-table-num="${table.table_number}">Занять/освободить</button></div>`;
             }
@@ -1141,9 +1248,9 @@
                 const startTime = new Date(document.getElementById('booking-start').value);
                 const endTime = new Date(document.getElementById('booking-end').value);
                 if (startTime >= endTime) { document.getElementById('booking-error').innerText = 'Время окончания должно быть позже начала'; return; }
-                const { data: conflicts } = await supabaseClient.from('bookings').select('*').eq('table_id', tableId).eq('status', 'active').or(`and(start_time.lte.${endTime.toISOString()},end_time.gte.${startTime.toISOString()})`);
+                const { data: conflicts } = await supabase.from('bookings').select('*').eq('table_id', tableId).eq('status', 'active').or(`and(start_time.lte.${endTime.toISOString()},end_time.gte.${startTime.toISOString()})`);
                 if (conflicts && conflicts.length) { document.getElementById('booking-error').innerText = 'Это время уже занято'; return; }
-                const { error } = await supabaseClient.from('bookings').insert({ table_id: tableId, user_id: currentUser.id, start_time: startTime.toISOString(), end_time: endTime.toISOString(), status: 'active' });
+                const { error } = await supabase.from('bookings').insert({ table_id: tableId, user_id: currentUser.id, start_time: startTime.toISOString(), end_time: endTime.toISOString(), status: 'active' });
                 if (error) alert('Ошибка: ' + error.message);
                 else { alert('Бронирование сохранено'); modal.classList.add('hidden'); loadClubTables(); }
             };
@@ -1156,7 +1263,7 @@
         }
 
         async function loadClubTournaments() {
-            const { data: tournaments } = await supabaseClient.from('tournaments').select('*').eq('club_id', currentClub.id).order('date', { ascending: false });
+            const { data: tournaments } = await supabase.from('tournaments').select('*').eq('club_id', currentClub.id).order('date', { ascending: false });
             let html = '';
             tournaments.forEach(t => {
                 html += `<div class="club-card"><h3>${t.name}</h3><p>Дата: ${new Date(t.date).toLocaleDateString()}</p><p>Макс. участников: ${t.max_participants || 'не ограничено'}</p><p>${t.description || ''}</p></div>`;
@@ -1171,7 +1278,7 @@
         }
 
         async function loadAdminStats() {
-            const { data: users } = await supabaseClient.from('profiles').select('role');
+            const { data: users } = await supabase.from('profiles').select('role');
             const roles = { user: 0, club: 0, admin: 0 };
             users.forEach(u => roles[u.role]++);
             const ctx = document.getElementById('admin-stats-chart').getContext('2d');
@@ -1179,13 +1286,12 @@
         }
 
         async function loadAdminClubs() {
-            const { data: clubs } = await supabaseClient.from('clubs').select('*, profiles(username)');
+            const { data: clubs } = await supabase.from('clubs').select('*, profiles(username)');
             let html = '';
             clubs.forEach(c => { html += `<div class="club-card">${c.name} (${c.profiles?.username})</div>`; });
             document.getElementById('admin-clubs-list').innerHTML = html;
         }
 
-        // Создание клуба с автоматическим созданием столов
         document.getElementById('create-club-btn')?.addEventListener('click', async () => {
             const name = document.getElementById('new-club-name').value;
             const address = document.getElementById('new-club-address').value;
@@ -1193,41 +1299,40 @@
             const cityName = document.getElementById('new-club-city').value;
             const tablesCount = parseInt(document.getElementById('new-club-tables').value) || 1;
             let cityId;
-            const { data: existingCity } = await supabaseClient.from('cities').select('id').eq('name', cityName).maybeSingle();
+            const { data: existingCity } = await supabase.from('cities').select('id').eq('name', cityName).maybeSingle();
             if (existingCity) cityId = existingCity.id;
             else {
-                const { data: newCity } = await supabaseClient.from('cities').insert({ name: cityName }).select().single();
+                const { data: newCity } = await supabase.from('cities').insert({ name: cityName }).select().single();
                 cityId = newCity.id;
             }
             const password = Math.random().toString(36).slice(-8);
             const email = `club_${Date.now()}@example.com`;
-            const { data: authUser, error: authError } = await supabaseClient.auth.signUp({ email, password });
+            const { data: authUser, error: authError } = await supabase.auth.signUp({ email, password });
             if (authError) { alert('Ошибка создания аккаунта клуба: ' + authError.message); return; }
-            await supabaseClient.from('profiles').update({ role: 'club' }).eq('id', authUser.user.id);
-            const { data: newClub, error: clubError } = await supabaseClient
+            await supabase.from('profiles').update({ role: 'club' }).eq('id', authUser.user.id);
+            const { data: newClub, error: clubError } = await supabase
                 .from('clubs')
                 .insert({ owner_id: authUser.user.id, name, address, phone, city_id: cityId, tables_count: tablesCount })
                 .select()
                 .single();
             if (clubError) { alert('Ошибка создания клуба: ' + clubError.message); return; }
-            // Создаём столы
             const tables = [];
             for (let i = 1; i <= tablesCount; i++) {
                 tables.push({ club_id: newClub.id, table_number: i });
             }
-            await supabaseClient.from('tables').insert(tables);
+            await supabase.from('tables').insert(tables);
             alert(`Клуб создан! Email: ${email}, Пароль: ${password}`);
             loadAdminClubs();
         });
 
         document.getElementById('add-table-btn')?.addEventListener('click', async () => {
-            const { data: tables } = await supabaseClient.from('tables').select('table_number').eq('club_id', currentClub.id).order('table_number', { ascending: false });
+            const { data: tables } = await supabase.from('tables').select('table_number').eq('club_id', currentClub.id).order('table_number', { ascending: false });
             const maxNum = tables.length ? tables[0].table_number : 0;
             const newNum = maxNum + 1;
-            const { error } = await supabaseClient.from('tables').insert({ club_id: currentClub.id, table_number: newNum });
+            const { error } = await supabase.from('tables').insert({ club_id: currentClub.id, table_number: newNum });
             if (error) alert('Ошибка добавления стола: ' + error.message);
             else {
-                await supabaseClient.from('clubs').update({ tables_count: currentClub.tables_count + 1 }).eq('id', currentClub.id);
+                await supabase.from('clubs').update({ tables_count: currentClub.tables_count + 1 }).eq('id', currentClub.id);
                 currentClub.tables_count++;
                 loadClubTables();
             }
@@ -1242,18 +1347,17 @@
             const date = document.getElementById('tournament-date').value;
             const desc = document.getElementById('tournament-desc').value;
             const rulesUrl = document.getElementById('tournament-rules-url').value;
-            const { error } = await supabaseClient.from('tournaments').insert({ club_id: currentClub.id, name, game_type: gameType, max_participants: max, date, description: desc, rules_file_url: rulesUrl });
+            const { error } = await supabase.from('tournaments').insert({ club_id: currentClub.id, name, game_type: gameType, max_participants: max, date, description: desc, rules_file_url: rulesUrl });
             if (error) alert('Ошибка: ' + error.message);
             else { alert('Турнир создан!'); document.getElementById('tournament-modal').classList.add('hidden'); loadClubTournaments(); }
         });
 
-        // Редактирование клуба (с синхронизацией количества столов)
         document.getElementById('edit-club-btn')?.addEventListener('click', () => {
             document.getElementById('edit-club-name').value = currentClub.name;
             document.getElementById('edit-club-address').value = currentClub.address;
             document.getElementById('edit-club-phone').value = currentClub.phone || '';
             (async () => {
-                const { data: city } = await supabaseClient.from('cities').select('name').eq('id', currentClub.city_id).single();
+                const { data: city } = await supabase.from('cities').select('name').eq('id', currentClub.city_id).single();
                 document.getElementById('edit-club-city').value = city?.name || '';
             })();
             document.getElementById('edit-club-tables').value = currentClub.tables_count;
@@ -1271,10 +1375,10 @@
             const newTablesCount = parseInt(document.getElementById('edit-club-tables').value) || 1;
             let cityId = currentClub.city_id;
             if (cityName) {
-                const { data: existingCity } = await supabaseClient.from('cities').select('id').eq('name', cityName).maybeSingle();
+                const { data: existingCity } = await supabase.from('cities').select('id').eq('name', cityName).maybeSingle();
                 if (existingCity) cityId = existingCity.id;
                 else {
-                    const { data: newCity } = await supabaseClient.from('cities').insert({ name: cityName }).select().single();
+                    const { data: newCity } = await supabase.from('cities').insert({ name: cityName }).select().single();
                     cityId = newCity.id;
                 }
             }
@@ -1283,32 +1387,31 @@
             if (fileInput.files && fileInput.files[0]) {
                 const file = fileInput.files[0];
                 const fileName = `${currentClub.id}_${Date.now()}`;
-                const { data: uploadData, error: uploadError } = await supabaseClient.storage
+                const { data: uploadData, error: uploadError } = await supabase.storage
                     .from(STORAGE_BUCKET)
                     .upload(fileName, file);
                 if (uploadError) {
                     alert('Ошибка загрузки фото: ' + uploadError.message);
                     return;
                 }
-                const { data: urlData } = supabaseClient.storage.from(STORAGE_BUCKET).getPublicUrl(fileName);
+                const { data: urlData } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(fileName);
                 photoUrl = urlData.publicUrl;
             }
-            const { error } = await supabaseClient
+            const { error } = await supabase
                 .from('clubs')
                 .update({ name, address, phone, city_id: cityId, tables_count: newTablesCount, photo_url: photoUrl })
                 .eq('id', currentClub.id);
             if (error) { alert('Ошибка обновления: ' + error.message); return; }
-            // Синхронизация количества столов
-            const { data: existingTables } = await supabaseClient.from('tables').select('*').eq('club_id', currentClub.id).order('table_number');
+            const { data: existingTables } = await supabase.from('tables').select('*').eq('club_id', currentClub.id).order('table_number');
             const currentCount = existingTables.length;
             if (newTablesCount > currentCount) {
                 for (let i = currentCount + 1; i <= newTablesCount; i++) {
-                    await supabaseClient.from('tables').insert({ club_id: currentClub.id, table_number: i });
+                    await supabase.from('tables').insert({ club_id: currentClub.id, table_number: i });
                 }
             } else if (newTablesCount < currentCount) {
                 const toDelete = existingTables.slice(newTablesCount);
                 for (let table of toDelete) {
-                    await supabaseClient.from('tables').delete().eq('id', table.id);
+                    await supabase.from('tables').delete().eq('id', table.id);
                 }
             }
             currentClub = { ...currentClub, name, address, phone, city_id: cityId, tables_count: newTablesCount, photo_url: photoUrl };
@@ -1395,8 +1498,9 @@
         // ========== ИНИЦИАЛИЗАЦИЯ ==========
         (async function init() {
             await loadCities();
-            const session = await checkSessionOld();
+            const session = await checkSession();
             if (!session) showScreen('auth-screen');
+            setupRealtimeSubscriptions();
         })();
     </script>
 </body>
